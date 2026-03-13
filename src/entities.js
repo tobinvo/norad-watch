@@ -1,4 +1,4 @@
-import { INTERCEPTOR_SPEED, INTERCEPTORS_PER_BASE } from './constants.js';
+import { AIRCRAFT_TYPES, BINGO_FUEL_THRESHOLD } from './constants.js';
 import { state } from './state.js';
 
 // ═══════════════════════════════════════════
@@ -13,11 +13,11 @@ export function createCity(name, x, y) {
 // BASE
 // ═══════════════════════════════════════════
 
-export function createBase(name, x, y) {
+export function createBase(name, x, y, roster) {
   const base = { id: name, name, x, y, interceptors: [] };
 
-  for (let i = 0; i < INTERCEPTORS_PER_BASE; i++) {
-    const interceptor = createInterceptor(base);
+  for (const type of roster) {
+    const interceptor = createInterceptor(base, type);
     base.interceptors.push(interceptor);
     state.interceptors.push(interceptor);
   }
@@ -29,18 +29,26 @@ export function createBase(name, x, y) {
 // INTERCEPTOR
 // ═══════════════════════════════════════════
 
-// States: READY, AIRBORNE, ENGAGED, RTB
-export function createInterceptor(base) {
+// States: READY, AIRBORNE, CAP, RTB
+export function createInterceptor(base, typeName) {
   const num = state.nextInterceptorNum++;
+  const spec = AIRCRAFT_TYPES[typeName];
+
   return {
-    id: `EAGLE-${num}`,
-    type: 'F-15A',
+    id: `${spec.callsign}-${num}`,
+    type: typeName,
+    spec,
     x: base.x,
     y: base.y,
-    speed: INTERCEPTOR_SPEED,
+    speed: spec.speed,
     state: 'READY',
     base,
-    target: null, // assigned threat
+    target: null,        // assigned threat
+    capPoint: null,      // { x, y } for CAP orbit
+    fuel: spec.fuelCapacity,
+    fuelMax: spec.fuelCapacity,
+    weapons: spec.weapons,
+    bingo: false,        // true when fuel warning triggered
   };
 }
 
@@ -53,7 +61,6 @@ export function createThreat(x, y, targetCity, speed) {
   const num = state.nextThreatNum++;
   const dx = targetCity.x - x;
   const dy = targetCity.y - y;
-  const dist = Math.sqrt(dx * dx + dy * dy);
   const heading = Math.atan2(dy, dx);
   const hdgDeg = ((90 - heading * 180 / Math.PI) + 360) % 360;
 
@@ -63,11 +70,11 @@ export function createThreat(x, y, targetCity, speed) {
     x,
     y,
     speed,
-    heading, // radians
+    heading,
     hdgDeg: Math.round(hdgDeg),
     targetCity,
     state: 'HOSTILE',
-    detected: false, // true once radar sweep reveals it
+    detected: false,
     altitude: 35000 + Math.floor(Math.random() * 10000),
   };
 }
@@ -87,11 +94,37 @@ export function moveInterceptor(interceptor, dt) {
   if (interceptor.state === 'READY') return;
 
   const dSec = dt / 1000;
+
+  // Burn fuel
+  interceptor.fuel -= interceptor.spec.fuelBurnRate * dSec;
+
+  // Bingo warning
+  if (!interceptor.bingo && interceptor.fuel / interceptor.fuelMax <= BINGO_FUEL_THRESHOLD) {
+    interceptor.bingo = true;
+    // Auto-RTB on bingo if not already heading home
+    if (interceptor.state !== 'RTB') {
+      interceptor.state = 'RTB';
+      interceptor.target = null;
+      interceptor.capPoint = null;
+      return; // will log in main update
+    }
+  }
+
+  // Crash on empty
+  if (interceptor.fuel <= 0) {
+    interceptor.fuel = 0;
+    interceptor.state = 'CRASHED';
+    return;
+  }
+
   let targetX, targetY;
 
   if (interceptor.state === 'AIRBORNE' && interceptor.target) {
     targetX = interceptor.target.x;
     targetY = interceptor.target.y;
+  } else if (interceptor.state === 'CAP' && interceptor.capPoint) {
+    targetX = interceptor.capPoint.x;
+    targetY = interceptor.capPoint.y;
   } else if (interceptor.state === 'RTB') {
     targetX = interceptor.base.x;
     targetY = interceptor.base.y;
@@ -103,17 +136,30 @@ export function moveInterceptor(interceptor, dt) {
   const dy = targetY - interceptor.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
 
-  if (dist < 0.002) {
+  if (dist < 0.003) {
     if (interceptor.state === 'RTB') {
       interceptor.state = 'READY';
       interceptor.x = interceptor.base.x;
       interceptor.y = interceptor.base.y;
+      interceptor.fuel = interceptor.fuelMax;
+      interceptor.weapons = interceptor.spec.weapons;
+      interceptor.bingo = false;
     }
+    // CAP: arrived at orbit point — just stay here (tiny orbit simulated by not moving)
     return;
   }
 
-  // Move toward target
   const moveAmt = interceptor.speed * dSec;
   interceptor.x += (dx / dist) * Math.min(moveAmt, dist);
   interceptor.y += (dy / dist) * Math.min(moveAmt, dist);
+}
+
+// ═══════════════════════════════════════════
+// AWACS DETECTION
+// ═══════════════════════════════════════════
+
+export function getActiveAWACS() {
+  return state.interceptors.filter(
+    i => i.type === 'E-3A' && (i.state === 'AIRBORNE' || i.state === 'CAP')
+  );
 }

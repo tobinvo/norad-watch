@@ -23,14 +23,18 @@ export const state = {
   totalSpawned: 0,
 
   // Selection state
-  selectedBase: null,    // base object or null
-  selectedThreat: null,  // threat object or null
+  selectedBase: null,         // base object or null
+  selectedThreat: null,       // threat object or null
+  selectedInterceptor: null,  // interceptor object or null
 
   // Radar blip visibility (keyed by entity id)
   blipVisibility: {},
 
   // Event log entries
   logEntries: [],
+
+  // Visual effects
+  effects: [], // { x, y, type: 'kill'|'impact', startTime }
 
   // Game status
   paused: false,

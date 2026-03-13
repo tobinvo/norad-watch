@@ -1,4 +1,4 @@
-import { WEAPONS_RANGE, CITY_IMPACT_RADIUS } from './constants.js';
+import { CITY_IMPACT_RADIUS, MAX_THREATS_PER_WAVE } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
 
@@ -9,12 +9,19 @@ function dist(a, b) {
 }
 
 export function resolveEngagements() {
-  // Check interceptor-threat engagements
   for (const interceptor of state.interceptors) {
     if (interceptor.state !== 'AIRBORNE' || !interceptor.target) continue;
+
+    // No weapons — can't engage (AWACS or spent aircraft)
+    if (interceptor.weapons <= 0) {
+      interceptor.target = null;
+      interceptor.state = 'RTB';
+      addLog(`${interceptor.id} WINCHESTER — NO WEAPONS — RTB`, 'warn');
+      continue;
+    }
+
     const threat = interceptor.target;
     if (threat.state !== 'HOSTILE') {
-      // Target already dead — RTB
       interceptor.target = null;
       interceptor.state = 'RTB';
       addLog(`${interceptor.id} TARGET NEUTRALIZED — RTB`, '');
@@ -22,16 +29,27 @@ export function resolveEngagements() {
     }
 
     const d = dist(interceptor, threat);
-    if (d <= WEAPONS_RANGE) {
-      // Engagement — destroy threat
-      addLog(`${interceptor.id} WEAPONS RANGE ON ${threat.id} — FOX THREE`, 'alert');
+    const range = interceptor.spec.weaponsRange;
+    if (d <= range) {
+      const weaponName = interceptor.spec.weaponType;
+      const callout = weaponName === 'GENIE' ? 'FOX ONE — GENIE' : 'FOX THREE';
+      addLog(`${interceptor.id} WEAPONS RANGE ON ${threat.id} — ${callout}`, 'alert');
+
+      interceptor.weapons--;
       threat.state = 'NEUTRALIZED';
       state.threatsNeutralized++;
       addLog(`${threat.id} SPLASH — KILL CONFIRMED`, 'alert');
+      state.effects.push({ x: threat.x, y: threat.y, type: 'kill', startTime: state.gameTime });
 
-      // Interceptor RTBs after kill
       interceptor.target = null;
-      interceptor.state = 'RTB';
+      // RTB if out of weapons, otherwise available for reassignment
+      if (interceptor.weapons <= 0) {
+        interceptor.state = 'RTB';
+        addLog(`${interceptor.id} WINCHESTER — RTB`, '');
+      } else {
+        interceptor.state = 'RTB';
+        addLog(`${interceptor.id} ${interceptor.weapons} ${interceptor.spec.weaponType} REMAINING — RTB`, '');
+      }
     }
   }
 
@@ -45,8 +63,8 @@ export function resolveEngagements() {
       threat.targetCity.hp = 0;
       state.citiesHit++;
       addLog(`${threat.id} IMPACT — ${threat.targetCity.name} HIT`, 'alert');
+      state.effects.push({ x: threat.targetCity.x, y: threat.targetCity.y, type: 'impact', startTime: state.gameTime });
 
-      // Any interceptor chasing this threat RTBs
       for (const i of state.interceptors) {
         if (i.target === threat) {
           i.target = null;
@@ -55,9 +73,9 @@ export function resolveEngagements() {
       }
     }
 
-    // Also check if threat has gone off-map (missed somehow)
+    // Off-map cleanup
     if (threat.x < -0.05 || threat.x > 1.05 || threat.y < -0.05 || threat.y > 1.05) {
-      threat.state = 'NEUTRALIZED'; // just remove it
+      threat.state = 'NEUTRALIZED';
     }
   }
 }
@@ -66,10 +84,9 @@ export function checkWinLose() {
   if (state.status !== 'ACTIVE') return;
 
   const activeThreats = state.threats.filter(t => t.state === 'HOSTILE');
-  const allSpawned = state.totalSpawned >= 5; // MAX_THREATS_PER_WAVE
+  const allSpawned = state.totalSpawned >= MAX_THREATS_PER_WAVE;
 
   if (allSpawned && activeThreats.length === 0) {
-    // Check if any interceptors are still engaging (shouldn't be, but just in case)
     const livingCities = state.cities.filter(c => c.hp > 0);
     if (livingCities.length > 0) {
       state.status = 'WON';

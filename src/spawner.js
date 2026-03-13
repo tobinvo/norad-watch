@@ -1,7 +1,6 @@
 import { BOMBER_SPEED, SPAWN_INTERVAL, MAX_THREATS_PER_WAVE } from './constants.js';
 import { state } from './state.js';
 import { createThreat } from './entities.js';
-import { addLog } from './hud.js';
 
 // Spawn points along the northern edge / ocean edges
 const SPAWN_ZONES = [

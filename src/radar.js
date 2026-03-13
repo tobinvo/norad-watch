@@ -1,11 +1,12 @@
 import {
-  GREEN_BRIGHT, GREEN_MID, RED_ALERT,
+  GREEN_BRIGHT, GREEN_MID, RED_ALERT, YELLOW_WARN,
   SWEEP_PERIOD, SWEEP_TRAIL_ANGLE, BLIP_FADE_TIME,
-  RADAR_CENTER_X, RADAR_CENTER_Y, WEAPONS_RANGE,
-  INTERCEPTOR_SPEED,
+  RADAR_CENTER_X, RADAR_CENTER_Y,
+  AWACS_RADAR_BONUS,
 } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
+import { getActiveAWACS } from './entities.js';
 
 export function drawRangeRings(ctx, toCanvas) {
   const [cx, cy] = toCanvas(RADAR_CENTER_X, RADAR_CENTER_Y);
@@ -173,33 +174,74 @@ export function drawThreats(ctx, toCanvas, timestamp) {
 
 export function drawInterceptors(ctx, toCanvas, timestamp) {
   for (const interceptor of state.interceptors) {
-    if (interceptor.state === 'READY') continue;
+    if (interceptor.state === 'READY' || interceptor.state === 'CRASHED') continue;
 
-    // Friendly assets are always visible — not subject to sweep
     const [ix, iy] = toCanvas(interceptor.x, interceptor.y);
-    const color = GREEN_BRIGHT;
-    const size = 4;
+    const fuelPct = interceptor.fuel / interceptor.fuelMax;
+    const isBingo = fuelPct <= 0.25;
+    const isAWACS = interceptor.type === 'E-3A';
+    const isSelected = state.selectedInterceptor === interceptor;
+    const color = isBingo ? YELLOW_WARN : GREEN_BRIGHT;
+    const size = isAWACS ? 6 : 4;
 
     ctx.save();
 
-    // Chevron shape (friendly marker)
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 4;
-    ctx.beginPath();
-    ctx.moveTo(ix - size, iy + size / 2);
-    ctx.lineTo(ix, iy - size / 2);
-    ctx.lineTo(ix + size, iy + size / 2);
-    ctx.stroke();
+    if (isAWACS) {
+      // Circle for AWACS
+      ctx.beginPath();
+      ctx.arc(ix, iy, size, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 4;
+      ctx.stroke();
+      // Inner dot
+      ctx.beginPath();
+      ctx.arc(ix, iy, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    } else {
+      // Chevron for fighters
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 4;
+      ctx.beginPath();
+      ctx.moveTo(ix - size, iy + size / 2);
+      ctx.lineTo(ix, iy - size / 2);
+      ctx.lineTo(ix + size, iy + size / 2);
+      ctx.stroke();
+    }
 
-    // ID label
+    // Selected ring
+    if (isSelected) {
+      ctx.beginPath();
+      ctx.arc(ix, iy, size + 5, 0, Math.PI * 2);
+      ctx.strokeStyle = '#00ff88';
+      ctx.lineWidth = 1;
+      ctx.shadowBlur = 0;
+      ctx.stroke();
+    }
+
+    // ID label + type
     ctx.font = '8px "Courier New", monospace';
     ctx.fillStyle = color;
     ctx.shadowBlur = 0;
-    ctx.fillText(interceptor.id, ix + size + 3, iy + 3);
+    ctx.fillText(`${interceptor.id}`, ix + size + 3, iy + 3);
 
-    // Draw line to target
+    // CAP orbit marker
+    if (interceptor.state === 'CAP' && interceptor.capPoint) {
+      const [cx, cy] = toCanvas(interceptor.capPoint.x, interceptor.capPoint.y);
+      ctx.strokeStyle = 'rgba(0, 255, 65, 0.2)';
+      ctx.lineWidth = 0.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Line to target
     if (interceptor.target && interceptor.state === 'AIRBORNE') {
       const [tx, ty] = toCanvas(interceptor.target.x, interceptor.target.y);
       ctx.strokeStyle = 'rgba(0, 255, 65, 0.3)';
@@ -212,6 +254,125 @@ export function drawInterceptors(ctx, toCanvas, timestamp) {
       ctx.setLineDash([]);
     }
 
+    // RTB line
+    if (interceptor.state === 'RTB') {
+      const [bx, by] = toCanvas(interceptor.base.x, interceptor.base.y);
+      ctx.strokeStyle = isBingo ? 'rgba(255, 204, 0, 0.2)' : 'rgba(0, 255, 65, 0.15)';
+      ctx.lineWidth = 0.5;
+      ctx.setLineDash([2, 4]);
+      ctx.beginPath();
+      ctx.moveTo(ix, iy);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    ctx.restore();
+  }
+}
+
+// AWACS range visualization
+export function drawAwacsRange(ctx, toCanvas) {
+  const awacs = getActiveAWACS();
+  for (const a of awacs) {
+    const [ax, ay] = toCanvas(a.x, a.y);
+    const w = ctx.canvas.width / window.devicePixelRatio;
+    const h = ctx.canvas.height / window.devicePixelRatio;
+    const rangeR = AWACS_RADAR_BONUS * Math.max(w, h);
+
+    ctx.beginPath();
+    ctx.arc(ax, ay, rangeR, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(0, 255, 65, 0.08)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 6]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Fill
+    ctx.fillStyle = 'rgba(0, 255, 65, 0.02)';
+    ctx.fill();
+  }
+}
+
+const EFFECT_DURATION = 3000; // ms
+
+export function drawEffects(ctx, toCanvas, gameTime) {
+  // Remove expired effects
+  state.effects = state.effects.filter(e => gameTime - e.startTime < EFFECT_DURATION);
+
+  for (const effect of state.effects) {
+    const [ex, ey] = toCanvas(effect.x, effect.y);
+    const elapsed = gameTime - effect.startTime;
+    const progress = elapsed / EFFECT_DURATION;
+    const alpha = 1 - progress;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    if (effect.type === 'kill') {
+      // Green expanding X with ring
+      const size = 6 + progress * 12;
+      ctx.strokeStyle = GREEN_BRIGHT;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = GREEN_BRIGHT;
+      ctx.shadowBlur = 8 * alpha;
+
+      // X mark
+      ctx.beginPath();
+      ctx.moveTo(ex - size / 2, ey - size / 2);
+      ctx.lineTo(ex + size / 2, ey + size / 2);
+      ctx.moveTo(ex + size / 2, ey - size / 2);
+      ctx.lineTo(ex - size / 2, ey + size / 2);
+      ctx.stroke();
+
+      // Expanding ring
+      ctx.beginPath();
+      ctx.arc(ex, ey, size, 0, Math.PI * 2);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // "SPLASH" label
+      if (progress < 0.6) {
+        ctx.font = '9px "Courier New", monospace';
+        ctx.fillStyle = GREEN_BRIGHT;
+        ctx.shadowBlur = 0;
+        ctx.fillText('SPLASH', ex + size + 4, ey + 3);
+      }
+    } else if (effect.type === 'impact') {
+      // Red expanding rings — explosion effect
+      const ring1 = 8 + progress * 30;
+      const ring2 = 4 + progress * 20;
+      ctx.strokeStyle = RED_ALERT;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = RED_ALERT;
+      ctx.shadowBlur = 12 * alpha;
+
+      ctx.beginPath();
+      ctx.arc(ex, ey, ring1, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(ex, ey, ring2, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Fill flash
+      if (progress < 0.15) {
+        ctx.fillStyle = `rgba(255, 68, 68, ${0.3 * alpha})`;
+        ctx.beginPath();
+        ctx.arc(ex, ey, ring1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // "IMPACT" label
+      if (progress < 0.7) {
+        ctx.font = 'bold 10px "Courier New", monospace';
+        ctx.fillStyle = RED_ALERT;
+        ctx.shadowBlur = 0;
+        ctx.fillText('IMPACT', ex + ring1 + 4, ey + 3);
+      }
+    }
+
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 }
@@ -243,19 +404,22 @@ export function drawBases(ctx, toCanvas) {
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Range envelope — shows how far an interceptor can fly
-      // Visual radius based on interceptor speed * ~15 seconds of flight
-      const w = ctx.canvas.width / window.devicePixelRatio;
-      const h = ctx.canvas.height / window.devicePixelRatio;
-      const rangeNorm = INTERCEPTOR_SPEED * 15; // ~15 seconds of flight
-      const rangeR = rangeNorm * Math.max(w, h);
-      ctx.beginPath();
-      ctx.arc(bx, by, rangeR, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(0, 255, 136, 0.15)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([6, 4]);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      // Range envelope — based on fastest ready aircraft
+      const readyAircraft = base.interceptors.filter(i => i.state === 'READY');
+      const fastestSpeed = Math.max(...readyAircraft.map(i => i.speed), 0);
+      if (fastestSpeed > 0) {
+        const cw = ctx.canvas.width / window.devicePixelRatio;
+        const ch = ctx.canvas.height / window.devicePixelRatio;
+        const rangeNorm = fastestSpeed * 15;
+        const rangeR = rangeNorm * Math.max(cw, ch);
+        ctx.beginPath();
+        ctx.arc(bx, by, rangeR, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(0, 255, 136, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
     }
 
     // Label

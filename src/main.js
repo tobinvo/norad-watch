@@ -1,7 +1,8 @@
 import { state } from './state.js';
+import { BASE_ROSTERS } from './constants.js';
 import { createBase, createCity, moveThreat, moveInterceptor } from './entities.js';
 import { drawMap } from './map.js';
-import { drawRangeRings, drawSweep, drawThreats, drawInterceptors, drawBases, drawCities } from './radar.js';
+import { drawRangeRings, drawSweep, drawThreats, drawInterceptors, drawBases, drawCities, drawEffects, drawAwacsRange } from './radar.js';
 import { trySpawnThreat } from './spawner.js';
 import { resolveEngagements, checkWinLose } from './intercept.js';
 import { renderLog, renderContacts, renderAssets, renderStatusBar, renderSelectionDetail, addLog } from './hud.js';
@@ -40,17 +41,17 @@ function initGame() {
     createCity('HOUSTON', 0.38, 0.68),
   );
 
-  // Create bases
+  // Create bases with mixed rosters
   state.bases.push(
-    createBase('PETERSON AFB', 0.30, 0.48),
-    createBase('LANGLEY AFB', 0.66, 0.54),
-    createBase('OTIS ANGB', 0.72, 0.38),
-    createBase('ELMENDORF AFB', 0.06, 0.17),
+    createBase('PETERSON AFB', 0.30, 0.48, BASE_ROSTERS['PETERSON AFB']),
+    createBase('LANGLEY AFB', 0.66, 0.54, BASE_ROSTERS['LANGLEY AFB']),
+    createBase('OTIS ANGB', 0.72, 0.38, BASE_ROSTERS['OTIS ANGB']),
+    createBase('ELMENDORF AFB', 0.06, 0.17, BASE_ROSTERS['ELMENDORF AFB']),
   );
 
   addLog('NORAD WATCH STATION ONLINE — ALL SECTORS NOMINAL', '');
   addLog('DEW LINE STATIONS REPORTING — COVERAGE NORMAL', '');
-  addLog('STANDING BY — CLICK BASE THEN CLICK HOSTILE TO SCRAMBLE', '');
+  addLog('CLICK BASE → CLICK HOSTILE TO SCRAMBLE | RIGHT-CLICK RADAR FOR CAP', '');
 }
 
 function update(timestamp, dt) {
@@ -63,8 +64,23 @@ function update(timestamp, dt) {
   for (const threat of state.threats) {
     moveThreat(threat, dt);
   }
+
+  // Track bingo/crash events before movement
   for (const interceptor of state.interceptors) {
+    const wasBingo = interceptor.bingo;
+    const wasAlive = interceptor.state !== 'CRASHED';
+
     moveInterceptor(interceptor, dt);
+
+    // Log bingo warning
+    if (!wasBingo && interceptor.bingo) {
+      addLog(`${interceptor.id} BINGO FUEL — RTB AUTHORIZED`, 'warn');
+    }
+
+    // Log crash
+    if (wasAlive && interceptor.state === 'CRASHED') {
+      addLog(`${interceptor.id} FUEL EXHAUSTION — AIRCRAFT LOST`, 'alert');
+    }
   }
 
   // Resolve combat
@@ -90,10 +106,12 @@ function render(timestamp) {
   drawRangeRings(ctx, toCanvas);
   drawMap(ctx, toCanvas);
   drawCities(ctx, toCanvas);
+  drawAwacsRange(ctx, toCanvas);
   drawBases(ctx, toCanvas);
   drawSweep(ctx, toCanvas, state.gameTime);
   drawThreats(ctx, toCanvas, state.gameTime);
   drawInterceptors(ctx, toCanvas, state.gameTime);
+  drawEffects(ctx, toCanvas, state.gameTime);
 
   // Update HUD panels
   renderContacts();

@@ -263,6 +263,15 @@ body {
   color: var(--green-text);
 }
 
+.asset-crashed {
+  color: var(--red-alert);
+  text-decoration: line-through;
+}
+
+.fuel-ok { color: var(--green-text); }
+.fuel-low { color: var(--yellow-warn); }
+.fuel-critical { color: var(--red-alert); }
+
 /* Center canvas */
 .center-area {
   grid-area: center;

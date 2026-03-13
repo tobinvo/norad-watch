@@ -23,10 +23,7 @@ export const BLIP_FADE_TIME = 3500; // ms after sweep passes
 // ═══════════════════════════════════════════
 
 // Speeds in normalized units per second (map is 0-1)
-// A bomber takes ~40s to cross the map vertically
-export const BOMBER_SPEED = 0.018;
-// Interceptors are ~2.5x faster than bombers
-export const INTERCEPTOR_SPEED = 0.045;
+export const BOMBER_SPEED = 0.012;
 
 // Weapons engagement range (normalized distance)
 export const WEAPONS_RANGE = 0.025;
@@ -42,8 +39,68 @@ export const MAX_THREATS_PER_WAVE = 5;
 export const RADAR_CENTER_X = 0.42;
 export const RADAR_CENTER_Y = 0.46;
 
+// Base radar range (normalized) — default detection radius
+export const BASE_RADAR_RANGE = 0.55;
+// AWACS extends this by:
+export const AWACS_RADAR_BONUS = 0.25;
+
+// Fuel
+export const BINGO_FUEL_THRESHOLD = 0.25; // 25% triggers bingo warning
+
 // ═══════════════════════════════════════════
-// ENTITY COUNTS
+// AIRCRAFT TYPES
 // ═══════════════════════════════════════════
 
-export const INTERCEPTORS_PER_BASE = 4;
+export const AIRCRAFT_TYPES = {
+  'F-15A': {
+    name: 'F-15A Eagle',
+    callsign: 'EAGLE',
+    speed: 0.035,          // fast
+    fuelCapacity: 100,     // max fuel
+    fuelBurnRate: 1.2,     // fuel/sec at cruise
+    weapons: 4,            // AMRAAMs
+    weaponType: 'AMRAAM',
+    weaponsRange: 0.025,
+  },
+  'F-16C': {
+    callsign: 'VIPER',
+    name: 'F-16C Falcon',
+    speed: 0.028,          // medium
+    fuelCapacity: 100,
+    fuelBurnRate: 1.0,     // better fuel economy
+    weapons: 2,            // AMRAAMs
+    weaponType: 'AMRAAM',
+    weaponsRange: 0.025,
+  },
+  'F-106A': {
+    name: 'F-106A Delta Dart',
+    callsign: 'DART',
+    speed: 0.032,          // fast
+    fuelCapacity: 100,
+    fuelBurnRate: 1.8,     // thirsty
+    weapons: 1,            // Genie nuclear rocket
+    weaponType: 'GENIE',
+    weaponsRange: 0.018,   // shorter range
+  },
+  'E-3A': {
+    name: 'E-3A Sentry AWACS',
+    callsign: 'SENTRY',
+    speed: 0.015,          // slow
+    fuelCapacity: 100,
+    fuelBurnRate: 0.5,     // long endurance
+    weapons: 0,            // no weapons
+    weaponType: null,
+    weaponsRange: 0,
+  },
+};
+
+// ═══════════════════════════════════════════
+// BASE ROSTERS
+// ═══════════════════════════════════════════
+
+export const BASE_ROSTERS = {
+  'PETERSON AFB':  ['F-15A', 'F-15A', 'F-16C', 'F-16C', 'E-3A'],
+  'LANGLEY AFB':   ['F-15A', 'F-15A', 'F-15A', 'F-106A'],
+  'OTIS ANGB':     ['F-16C', 'F-16C', 'F-106A'],
+  'ELMENDORF AFB': ['F-15A', 'F-15A', 'F-106A', 'E-3A'],
+};
