@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NORAD WATCH</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  :root {
+    --green-bright: #00ff41;
+    --green-mid: #00cc33;
+    --green-dim: #003b0f;
+    --green-text: #00dd38;
+    --red-alert: #ff4444;
+    --yellow-warn: #ffcc00;
+    --orange-warn: #ff8800;
+    --bg-dark: #0a0a0a;
+    --bg-panel: #0d0d0d;
+    --border-green: #004d14;
+  }
+
+  @font-face {
+    font-family: 'CRT';
+    src: local('Courier New'), local('Courier'), local('monospace');
+  }
+
+  body {
+    background: var(--bg-dark);
+    color: var(--green-text);
+    font-family: 'Courier New', Courier, monospace;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  /* CRT scanline overlay */
+  .crt-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1000;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.15) 0px,
+      rgba(0, 0, 0, 0.15) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+
+  /* CRT vignette / curvature */
+  .crt-vignette {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 999;
+    background: radial-gradient(
+      ellipse at center,
+      transparent 60%,
+      rgba(0, 0, 0, 0.4) 100%
+    );
+    border-radius: 12px;
+  }
+
+  /* Green ambient glow */
+  .crt-glow {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 998;
+    background: radial-gradient(
+      ellipse at center,
+      rgba(0, 255, 65, 0.02) 0%,
+      transparent 70%
+    );
+  }
+
+  /* Main layout */
+  .layout {
+    display: grid;
+    grid-template-columns: 250px 1fr 250px;
+    grid-template-rows: 32px 1fr 120px;
+    grid-template-areas:
+      "topbar topbar topbar"
+      "left center right"
+      "bottom bottom bottom";
+    height: 100vh;
+    width: 100vw;
+    gap: 1px;
+  }
+
+  /* Top bar */
+  .top-bar {
+    grid-area: topbar;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 16px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border-green);
+    font-size: 14px;
+    letter-spacing: 2px;
+  }
+
+  .top-bar .title {
+    color: var(--green-bright);
+    font-weight: bold;
+    font-size: 16px;
+    text-shadow: 0 0 8px rgba(0, 255, 65, 0.5);
+  }
+
+  .top-bar .defcon {
+    color: var(--yellow-warn);
+    font-weight: bold;
+    text-shadow: 0 0 8px rgba(255, 204, 0, 0.4);
+  }
+
+  .top-bar .clock {
+    color: var(--green-bright);
+    text-shadow: 0 0 6px rgba(0, 255, 65, 0.3);
+  }
+
+  /* Panels */
+  .panel {
+    background: var(--bg-panel);
+    padding: 8px;
+    overflow-y: auto;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .panel-header {
+    color: var(--green-bright);
+    font-size: 12px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    text-align: center;
+    padding: 4px 0 8px 0;
+    border-bottom: 1px solid var(--border-green);
+    margin-bottom: 8px;
+    text-shadow: 0 0 6px rgba(0, 255, 65, 0.3);
+  }
+
+  /* Left panel */
+  .left-panel {
+    grid-area: left;
+    border-right: 1px solid var(--border-green);
+  }
+
+  .contact-table {
+    width: 100%;
+    font-size: 10px;
+  }
+
+  .contact-table th {
+    color: var(--green-mid);
+    text-align: left;
+    padding: 2px 4px;
+    border-bottom: 1px solid var(--green-dim);
+    font-size: 9px;
+    letter-spacing: 1px;
+  }
+
+  .contact-table td {
+    padding: 2px 4px;
+    color: var(--green-text);
+  }
+
+  .contact-table tr.hostile td {
+    color: var(--red-alert);
+  }
+
+  .contact-table tr.hostile td.status-cell {
+    text-shadow: 0 0 4px rgba(255, 68, 68, 0.4);
+  }
+
+  /* Right panel */
+  .right-panel {
+    grid-area: right;
+    border-left: 1px solid var(--border-green);
+  }
+
+  .base-block {
+    margin-bottom: 12px;
+  }
+
+  .base-name {
+    color: var(--green-bright);
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+
+  .base-name .active-tag {
+    color: var(--green-mid);
+    font-size: 10px;
+  }
+
+  .asset-line {
+    padding-left: 12px;
+    font-size: 10px;
+    color: var(--green-text);
+  }
+
+  .fuel-low {
+    color: var(--yellow-warn);
+  }
+
+  .fuel-ok {
+    color: var(--green-text);
+  }
+
+  /* Center canvas */
+  .center-area {
+    grid-area: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #radarCanvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* Bottom bar */
+  .bottom-bar {
+    grid-area: bottom;
+    border-top: 1px solid var(--border-green);
+    background: var(--bg-panel);
+    padding: 4px 8px;
+    overflow: hidden;
+  }
+
+  .bottom-bar .panel-header {
+    padding: 2px 0 4px 0;
+    margin-bottom: 4px;
+    font-size: 11px;
+  }
+
+  .event-log {
+    height: calc(120px - 32px);
+    overflow: hidden;
+    font-size: 10px;
+    line-height: 1.6;
+  }
+
+  .event-log .log-entry {
+    color: var(--green-text);
+    white-space: nowrap;
+  }
+
+  .event-log .log-entry.alert {
+    color: var(--red-alert);
+  }
+
+  .event-log .log-entry.warn {
+    color: var(--yellow-warn);
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--bg-dark);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--green-dim);
+  }
+</style>
+</head>
+<body>
+
+<div class="crt-glow"></div>
+<div class="crt-vignette"></div>
+<div class="crt-overlay"></div>
+
+<div class="layout">
+  <!-- Top Bar -->
+  <div class="top-bar">
+    <span class="title">NORAD WATCH</span>
+    <span class="defcon">■ DEFCON 3 ■</span>
+    <span class="clock" id="utcClock">0000Z</span>
+  </div>
+
+  <!-- Left Panel: Contact List -->
+  <div class="panel left-panel">
+    <div class="panel-header">NORAD CONTACT LIST</div>
+    <table class="contact-table">
+      <thead>
+        <tr>
+          <th>TRACK</th>
+          <th>TYPE</th>
+          <th>HDG</th>
+          <th>SPD</th>
+          <th>ALT</th>
+          <th>STATUS</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>BGE-7</td>
+          <td>UNKN</td>
+          <td>185</td>
+          <td>480</td>
+          <td>35000</td>
+          <td>TRACKING</td>
+        </tr>
+        <tr>
+          <td>BGE-12</td>
+          <td>UNKN</td>
+          <td>210</td>
+          <td>520</td>
+          <td>28000</td>
+          <td>TRACKING</td>
+        </tr>
+        <tr class="hostile">
+          <td>HST-3</td>
+          <td>BOMBER</td>
+          <td>195</td>
+          <td>440</td>
+          <td>42000</td>
+          <td class="status-cell">HOSTILE</td>
+        </tr>
+        <tr>
+          <td>UNK-5</td>
+          <td>UNKN</td>
+          <td>170</td>
+          <td>490</td>
+          <td>31000</td>
+          <td>PENDING ID</td>
+        </tr>
+        <tr class="hostile">
+          <td>FTR-8</td>
+          <td>FGHTR</td>
+          <td>220</td>
+          <td>680</td>
+          <td>25000</td>
+          <td class="status-cell">HOSTILE</td>
+        </tr>
+        <tr>
+          <td>BGE-15</td>
+          <td>UNKN</td>
+          <td>200</td>
+          <td>510</td>
+          <td>38000</td>
+          <td>TRACKING</td>
+        </tr>
+        <tr class="hostile">
+          <td>CM-2</td>
+          <td>CRUISE</td>
+          <td>180</td>
+          <td>580</td>
+          <td>500</td>
+          <td class="status-cell">HOSTILE</td>
+        </tr>
+        <tr>
+          <td>BGE-21</td>
+          <td>UNKN</td>
+          <td>165</td>
+          <td>455</td>
+          <td>33000</td>
+          <td>TRACKING</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Center: Radar Canvas -->
+  <div class="center-area">
+    <canvas id="radarCanvas"></canvas>
+  </div>
+
+  <!-- Right Panel: Asset Status -->
+  <div class="panel right-panel">
+    <div class="panel-header">ASSET STATUS</div>
+
+    <div class="base-block">
+      <div class="base-name">PETERSON AFB <span class="active-tag">[ACTIVE]</span></div>
+      <div class="asset-line">F-15A  x2  READY</div>
+      <div class="asset-line">F-15A  x1  AIRBORNE  <span class="fuel-ok">FUEL: 72%</span></div>
+      <div class="asset-line">F-16C  x2  READY</div>
+      <div class="asset-line">E-3A   x1  AIRBORNE  <span class="fuel-ok">FUEL: 85%</span></div>
+    </div>
+
+    <div class="base-block">
+      <div class="base-name">LANGLEY AFB <span class="active-tag">[ACTIVE]</span></div>
+      <div class="asset-line">F-15A  x3  READY</div>
+      <div class="asset-line">F-106A x2  READY</div>
+      <div class="asset-line">F-16C  x1  AIRBORNE  <span class="fuel-low">FUEL: 45%</span></div>
+    </div>
+
+    <div class="base-block">
+      <div class="base-name">OTIS ANGB <span class="active-tag">[ACTIVE]</span></div>
+      <div class="asset-line">F-16C  x2  READY</div>
+      <div class="asset-line">F-106A x1  READY</div>
+    </div>
+
+    <div class="base-block">
+      <div class="base-name">ELMENDORF AFB <span class="active-tag">[ACTIVE]</span></div>
+      <div class="asset-line">F-15A  x2  READY</div>
+      <div class="asset-line">F-15A  x1  AIRBORNE  <span class="fuel-ok">FUEL: 61%</span></div>
+    </div>
+  </div>
+
+  <!-- Bottom Bar: Event Log -->
+  <div class="bottom-bar">
+    <div class="panel-header">EVENT LOG</div>
+    <div class="event-log" id="eventLog"></div>
+  </div>
+</div>
+
+<script>
+  // ═══════════════════════════════════════════
+  // CONSTANTS
+  // ═══════════════════════════════════════════
+
+  const GREEN_BRIGHT = '#00ff41';
+  const GREEN_MID = '#00cc33';
+  const GREEN_DIM = '#003b0f';
+  const GREEN_MAP = '#005a1a';
+  const GREEN_TEXT = '#00dd38';
+  const RED_ALERT = '#ff4444';
+  const SWEEP_PERIOD = 8000; // ms for full rotation
+  const SWEEP_TRAIL_ANGLE = Math.PI / 6; // 30 degrees
+  const BLIP_FADE_TIME = 3500; // ms
+  const LOG_INTERVAL = 4000; // ms between new log entries
+
+  // ═══════════════════════════════════════════
+  // NORTH AMERICA MAP COORDINATES
+  // Normalized 0-1 range, will be scaled to canvas
+  // ═══════════════════════════════════════════
+
+  const US_OUTLINE = [
+    // West coast (top to bottom)
+    [0.14, 0.32], [0.13, 0.35], [0.12, 0.38], [0.11, 0.41],
+    [0.10, 0.44], [0.09, 0.47], [0.08, 0.50], [0.08, 0.53],
+    [0.09, 0.56], [0.10, 0.58], [0.11, 0.60], [0.12, 0.62],
+    // Southern California
+    [0.14, 0.64], [0.16, 0.65],
+    // Mexico border
+    [0.18, 0.66], [0.22, 0.67], [0.26, 0.68], [0.30, 0.70],
+    // Texas coast
+    [0.34, 0.72], [0.38, 0.74], [0.40, 0.74],
+    // Gulf coast
+    [0.42, 0.73], [0.44, 0.72], [0.46, 0.73],
+    [0.48, 0.72], [0.50, 0.71],
+    // Florida
+    [0.52, 0.72], [0.54, 0.73], [0.56, 0.76], [0.57, 0.79],
+    [0.56, 0.80], [0.54, 0.78], [0.53, 0.75],
+    // East Gulf coast
+    [0.52, 0.73], [0.54, 0.71],
+    // East coast (bottom to top)
+    [0.56, 0.70], [0.58, 0.68], [0.60, 0.66],
+    [0.62, 0.64], [0.64, 0.61], [0.65, 0.58],
+    // Carolinas
+    [0.66, 0.56], [0.68, 0.54],
+    // Chesapeake area
+    [0.69, 0.52], [0.70, 0.50], [0.69, 0.48],
+    // Northeast
+    [0.70, 0.46], [0.71, 0.44], [0.72, 0.42],
+    [0.71, 0.40], [0.70, 0.38],
+    // New England
+    [0.71, 0.36], [0.72, 0.34], [0.71, 0.32],
+    [0.70, 0.30], [0.69, 0.28],
+    // Maine
+    [0.70, 0.26], [0.71, 0.24], [0.70, 0.22],
+    // US-Canada border (east to west)
+    [0.68, 0.22], [0.64, 0.24], [0.60, 0.26],
+    // Great Lakes region - border jogs
+    [0.56, 0.28], [0.52, 0.28], [0.48, 0.30],
+    [0.44, 0.30], [0.40, 0.30], [0.36, 0.30],
+    [0.32, 0.30], [0.28, 0.30],
+    // Northern border west
+    [0.24, 0.30], [0.20, 0.30], [0.16, 0.30],
+    [0.14, 0.32],
+  ];
+
+  const CANADA_OUTLINE = [
+    // West coast BC
+    [0.10, 0.18], [0.09, 0.21], [0.10, 0.24], [0.11, 0.27],
+    [0.12, 0.29], [0.14, 0.32], [0.16, 0.30],
+    // Border (shared with US, going east)
+    [0.20, 0.30], [0.24, 0.30], [0.28, 0.30],
+    [0.32, 0.30], [0.36, 0.30], [0.40, 0.30],
+    [0.44, 0.30], [0.48, 0.30], [0.52, 0.28],
+    [0.56, 0.28], [0.60, 0.26], [0.64, 0.24],
+    [0.68, 0.22], [0.70, 0.22],
+    // East coast Canada
+    [0.72, 0.20], [0.74, 0.18], [0.76, 0.16],
+    [0.74, 0.14], [0.72, 0.13],
+    // Labrador / Newfoundland area
+    [0.70, 0.12], [0.68, 0.10], [0.66, 0.09],
+    // Northern coast (simplified)
+    [0.62, 0.08], [0.56, 0.06], [0.50, 0.05],
+    [0.44, 0.04], [0.38, 0.05], [0.32, 0.06],
+    [0.26, 0.08], [0.20, 0.10], [0.16, 0.12],
+    [0.12, 0.14], [0.10, 0.18],
+  ];
+
+  const MEXICO_OUTLINE = [
+    // Border with US
+    [0.14, 0.64], [0.16, 0.65], [0.18, 0.66],
+    [0.22, 0.67], [0.26, 0.68], [0.30, 0.70],
+    [0.34, 0.72], [0.38, 0.74],
+    // East coast Mexico
+    [0.38, 0.76], [0.36, 0.80], [0.34, 0.84],
+    [0.32, 0.86],
+    // Yucatan
+    [0.34, 0.88], [0.38, 0.86], [0.40, 0.84],
+    // South coast
+    [0.36, 0.82], [0.32, 0.82],
+    // West coast Mexico
+    [0.28, 0.80], [0.24, 0.78], [0.20, 0.76],
+    [0.16, 0.74], [0.14, 0.72], [0.12, 0.68],
+    // Baja
+    [0.10, 0.66], [0.08, 0.68], [0.07, 0.72],
+    [0.08, 0.74], [0.10, 0.72], [0.12, 0.68],
+    [0.14, 0.64],
+  ];
+
+  const GREAT_LAKES = [
+    // Lake Superior
+    { points: [
+      [0.42, 0.30], [0.44, 0.28], [0.46, 0.27], [0.48, 0.27],
+      [0.50, 0.28], [0.50, 0.30], [0.48, 0.31], [0.46, 0.31],
+      [0.44, 0.31], [0.42, 0.30],
+    ]},
+    // Lake Michigan
+    { points: [
+      [0.50, 0.31], [0.50, 0.33], [0.49, 0.36], [0.48, 0.38],
+      [0.49, 0.39], [0.50, 0.37], [0.51, 0.34], [0.51, 0.31],
+      [0.50, 0.31],
+    ]},
+    // Lake Huron
+    { points: [
+      [0.52, 0.29], [0.54, 0.28], [0.55, 0.30], [0.55, 0.33],
+      [0.54, 0.35], [0.52, 0.34], [0.51, 0.32], [0.52, 0.29],
+    ]},
+    // Lake Erie
+    { points: [
+      [0.54, 0.36], [0.56, 0.35], [0.60, 0.34], [0.62, 0.35],
+      [0.61, 0.36], [0.58, 0.37], [0.55, 0.37], [0.54, 0.36],
+    ]},
+    // Lake Ontario
+    { points: [
+      [0.62, 0.33], [0.64, 0.32], [0.66, 0.32], [0.66, 0.33],
+      [0.64, 0.34], [0.62, 0.33],
+    ]},
+  ];
+
+  // Alaska outline
+  const ALASKA_OUTLINE = [
+    [0.02, 0.20], [0.04, 0.16], [0.06, 0.14], [0.08, 0.12],
+    [0.10, 0.14], [0.12, 0.16], [0.10, 0.18],
+    [0.08, 0.20], [0.06, 0.22], [0.04, 0.22], [0.02, 0.20],
+  ];
+
+  // ═══════════════════════════════════════════
+  // RADAR BLIPS
+  // ═══════════════════════════════════════════
+
+  const RADAR_BLIPS = [
+    { id: 'BGE-7',  x: 0.35, y: 0.42, hostile: false },
+    { id: 'BGE-12', x: 0.55, y: 0.38, hostile: false },
+    { id: 'HST-3',  x: 0.28, y: 0.25, hostile: true  },
+    { id: 'UNK-5',  x: 0.62, y: 0.50, hostile: false },
+    { id: 'FTR-8',  x: 0.45, y: 0.55, hostile: true  },
+    { id: 'BGE-15', x: 0.20, y: 0.48, hostile: false },
+    { id: 'CM-2',   x: 0.50, y: 0.65, hostile: true  },
+    { id: 'BGE-21', x: 0.68, y: 0.35, hostile: false },
+  ];
+
+  // Base markers
+  const BASES = [
+    { name: 'PETERSON AFB', x: 0.30, y: 0.48 },
+    { name: 'LANGLEY AFB',  x: 0.66, y: 0.54 },
+    { name: 'OTIS ANGB',    x: 0.72, y: 0.38 },
+    { name: 'ELMENDORF AFB', x: 0.06, y: 0.17 },
+  ];
+
+  // City markers
+  const CITIES = [
+    { name: 'NEW YORK',      x: 0.70, y: 0.42 },
+    { name: 'CHICAGO',       x: 0.52, y: 0.38 },
+    { name: 'LOS ANGELES',   x: 0.11, y: 0.60 },
+    { name: 'WASHINGTON DC',  x: 0.68, y: 0.50 },
+    { name: 'HOUSTON',       x: 0.38, y: 0.68 },
+  ];
+
+  // Radar center (roughly center of CONUS)
+  const RADAR_CENTER_X = 0.42;
+  const RADAR_CENTER_Y = 0.46;
+
+  // ═══════════════════════════════════════════
+  // EVENT LOG DATA
+  // ═══════════════════════════════════════════
+
+  const INITIAL_LOG_ENTRIES = [
+    { text: '0341Z — NORAD WATCH STATION ONLINE — ALL SECTORS NOMINAL', cls: '' },
+    { text: '0343Z — DEW LINE STATIONS REPORTING — COVERAGE NORMAL', cls: '' },
+    { text: '0345Z — PINETREE LINE RADAR CHECK — ALL STATIONS GREEN', cls: '' },
+    { text: '0347Z — BOGIE TRACK 7 ENTERING ADIZ SECTOR 4', cls: 'warn' },
+    { text: '0348Z — SCRAMBLE ORDER: PETERSON F-15A → BGE-7', cls: 'alert' },
+    { text: '0349Z — E-3A SENTRY ON STATION — COVERAGE EXTENDED SECTOR 7-12', cls: '' },
+    { text: '0351Z — TRACK 12 RADAR CONTACT LOST — LAST KNOWN HDG 210', cls: 'warn' },
+    { text: '0352Z — IFF NEGATIVE ON TRACK 5 — ROE BRAVO APPLIES', cls: 'warn' },
+    { text: '0354Z — HOSTILE TRACK 3 CLASSIFIED BOMBER — WEAPONS FREE', cls: 'alert' },
+    { text: '0355Z — F-16C LANGLEY AIRBORNE — INTERCEPT VECTOR 195', cls: '' },
+    { text: '0356Z — CRUISE MISSILE TRACK 2 DETECTED — LOW ALTITUDE INGRESS', cls: 'alert' },
+    { text: '0358Z — DEFCON 3 — INCREASED READINESS ORDERED', cls: 'alert' },
+  ];
+
+  const RECURRING_LOG_ENTRIES = [
+    { text: 'F-15A PETERSON WEAPONS RANGE ON BGE-7 — FOX THREE', cls: 'alert' },
+    { text: 'BGE-7 SPLASH — KILL CONFIRMED', cls: 'alert' },
+    { text: 'TRACK 15 NEW RADAR CONTACT BEARING 200 — EVALUATE', cls: 'warn' },
+    { text: 'BMEWS CLEAR LAKE REPORTS NOMINAL — NO BALLISTIC TRACKS', cls: '' },
+    { text: 'OTH-B RADAR BACKSCATTER ANOMALY — SECTOR 9 — INVESTIGATING', cls: 'warn' },
+    { text: 'F-106A OTIS ANGB SCRAMBLE — INTERCEPT TRACK UNK-5', cls: '' },
+    { text: 'AWACS E-3A FUEL STATE 78% — TANKER RENDEZVOUS 0430Z', cls: '' },
+    { text: 'RADAR MAINTENANCE WINDOW CAPE COD — COVERAGE OVERLAP CONFIRMED', cls: '' },
+    { text: 'IFF MODE 4 CHALLENGE SENT — TRACK BGE-12 — AWAITING RESPONSE', cls: '' },
+    { text: 'HOSTILE TRACK HST-3 ALTITUDE CHANGE — NOW FL450 — BOMBER PROFILE', cls: 'alert' },
+    { text: 'SAC COMMAND POST CONFIRMS B-52 ALERT FORCE READY', cls: '' },
+    { text: 'NORAD REGION COMMANDER BRIEFED — THREAT ASSESSMENT ELEVATED', cls: 'warn' },
+    { text: 'TRACK CM-2 TERRAIN FOLLOWING — INTERMITTENT RADAR RETURNS', cls: 'alert' },
+    { text: 'F-15A ELMENDORF CAP STATION — SECTOR 1 COVERAGE', cls: '' },
+    { text: 'SATELLITE EARLY WARNING — NO LAUNCH INDICATIONS', cls: '' },
+    { text: 'GROUND OBSERVER CORPS REPORT — VISUAL ON LOW FLYER SECTOR 6', cls: 'warn' },
+    { text: 'CFAD NORTH BAY CONFIRMS TRACK CORRELATION — BGE-15', cls: '' },
+    { text: 'WEAPONS HOLD ORDER — TRACK UNK-5 — PENDING IDENTIFICATION', cls: 'warn' },
+    { text: 'F-16C LANGLEY BINGO FUEL — RTB AUTHORIZED', cls: '' },
+    { text: 'REPLACEMENT F-15A LANGLEY SCRAMBLE — ASSUMING INTERCEPT', cls: '' },
+    { text: 'CHEYENNE MTN COMPLEX — ALL SYSTEMS OPERATIONAL', cls: '' },
+    { text: 'TRACK BGE-21 SQUAWKING MODE 3 — POSSIBLE CIVILIAN', cls: '' },
+    { text: 'FAA COORDINATION — NO SCHEDULED TRAFFIC SECTOR 4', cls: 'warn' },
+    { text: 'HOSTILE CM-2 PROJECTED IMPACT — INITIATING ENGAGEMENT', cls: 'alert' },
+  ];
+
+  // ═══════════════════════════════════════════
+  // STATE
+  // ═══════════════════════════════════════════
+
+  let canvas, ctx;
+  let sweepAngle = 0;
+  let lastTime = 0;
+  let blipVisibility = {}; // blipId -> { alpha, lastSweepTime }
+  let logEntryIndex = 0;
+  let lastLogTime = 0;
+
+  // ═══════════════════════════════════════════
+  // CLOCK
+  // ═══════════════════════════════════════════
+
+  function updateClock() {
+    const now = new Date();
+    const h = String(now.getUTCHours()).padStart(2, '0');
+    const m = String(now.getUTCMinutes()).padStart(2, '0');
+    document.getElementById('utcClock').textContent = h + m + 'Z';
+  }
+
+  // ═══════════════════════════════════════════
+  // EVENT LOG
+  // ═══════════════════════════════════════════
+
+  function initLog() {
+    const logEl = document.getElementById('eventLog');
+    INITIAL_LOG_ENTRIES.forEach(entry => {
+      addLogEntry(entry.text, entry.cls);
+    });
+  }
+
+  function addLogEntry(text, cls) {
+    const logEl = document.getElementById('eventLog');
+    const div = document.createElement('div');
+    div.className = 'log-entry' + (cls ? ' ' + cls : '');
+    div.textContent = text;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function generateLogEntry() {
+    const now = new Date();
+    const h = String(now.getUTCHours()).padStart(2, '0');
+    const m = String(now.getUTCMinutes()).padStart(2, '0');
+    const entry = RECURRING_LOG_ENTRIES[logEntryIndex % RECURRING_LOG_ENTRIES.length];
+    logEntryIndex++;
+    addLogEntry(h + m + 'Z — ' + entry.text, entry.cls);
+  }
+
+  // ═══════════════════════════════════════════
+  // CANVAS SETUP
+  // ═══════════════════════════════════════════
+
+  function setupCanvas() {
+    canvas = document.getElementById('radarCanvas');
+    ctx = canvas.getContext('2d');
+    resizeCanvas();
+  }
+
+  function resizeCanvas() {
+    const container = canvas.parentElement;
+    canvas.width = container.clientWidth * window.devicePixelRatio;
+    canvas.height = container.clientHeight * window.devicePixelRatio;
+    canvas.style.width = container.clientWidth + 'px';
+    canvas.style.height = container.clientHeight + 'px';
+    ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+  }
+
+  // ═══════════════════════════════════════════
+  // DRAWING FUNCTIONS
+  // ═══════════════════════════════════════════
+
+  function toCanvas(nx, ny) {
+    const w = canvas.width / window.devicePixelRatio;
+    const h = canvas.height / window.devicePixelRatio;
+    return [nx * w, ny * h];
+  }
+
+  function drawMapOutline(points, color, lineWidth) {
+    if (points.length < 2) return;
+    ctx.beginPath();
+    ctx.strokeStyle = color || GREEN_MAP;
+    ctx.lineWidth = lineWidth || 1;
+    const [sx, sy] = toCanvas(points[0][0], points[0][1]);
+    ctx.moveTo(sx, sy);
+    for (let i = 1; i < points.length; i++) {
+      const [px, py] = toCanvas(points[i][0], points[i][1]);
+      ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+
+  function drawMap() {
+    // Main outlines
+    drawMapOutline(US_OUTLINE, GREEN_MAP, 1.2);
+    drawMapOutline(CANADA_OUTLINE, '#003d10', 0.8);
+    drawMapOutline(MEXICO_OUTLINE, '#002a0b', 0.7);
+    drawMapOutline(ALASKA_OUTLINE, '#003d10', 0.8);
+
+    // Great Lakes
+    ctx.strokeStyle = '#004015';
+    ctx.lineWidth = 0.7;
+    GREAT_LAKES.forEach(lake => {
+      drawMapOutline(lake.points, '#004015', 0.7);
+    });
+  }
+
+  function drawRangeRings() {
+    const [cx, cy] = toCanvas(RADAR_CENTER_X, RADAR_CENTER_Y);
+    const maxR = Math.max(canvas.width, canvas.height) / window.devicePixelRatio * 0.5;
+
+    ctx.strokeStyle = '#001a08';
+    ctx.lineWidth = 0.5;
+
+    for (let i = 1; i <= 6; i++) {
+      const r = (maxR / 6) * i;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  function drawSweep(timestamp) {
+    const [cx, cy] = toCanvas(RADAR_CENTER_X, RADAR_CENTER_Y);
+    const maxR = Math.max(canvas.width, canvas.height) / window.devicePixelRatio * 0.6;
+
+    // Sweep angle
+    sweepAngle = ((timestamp % SWEEP_PERIOD) / SWEEP_PERIOD) * Math.PI * 2;
+
+    // Draw fading trail cone
+    const trailSteps = 30;
+    for (let i = 0; i < trailSteps; i++) {
+      const frac = i / trailSteps;
+      const angle = sweepAngle - (SWEEP_TRAIL_ANGLE * frac);
+      const alpha = 0.12 * (1 - frac);
+
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      const stepAngle = SWEEP_TRAIL_ANGLE / trailSteps;
+      ctx.arc(cx, cy, maxR, angle - stepAngle, angle);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(0, 255, 65, ${alpha})`;
+      ctx.fill();
+    }
+
+    // Main sweep line
+    const endX = cx + Math.cos(sweepAngle) * maxR;
+    const endY = cy + Math.sin(sweepAngle) * maxR;
+
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(endX, endY);
+    ctx.strokeStyle = GREEN_BRIGHT;
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = GREEN_BRIGHT;
+    ctx.shadowBlur = 8;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Center dot
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+    ctx.fillStyle = GREEN_BRIGHT;
+    ctx.shadowColor = GREEN_BRIGHT;
+    ctx.shadowBlur = 6;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  function drawBlips(timestamp) {
+    const [cx, cy] = toCanvas(RADAR_CENTER_X, RADAR_CENTER_Y);
+
+    RADAR_BLIPS.forEach(blip => {
+      const [bx, by] = toCanvas(blip.x, blip.y);
+
+      // Calculate angle from center to blip
+      const blipAngle = Math.atan2(by - cy, bx - cx);
+
+      // Normalize angles for comparison
+      let sweepNorm = ((sweepAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      let blipNorm = ((blipAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+
+      // Check if sweep just passed over this blip
+      let angleDiff = sweepNorm - blipNorm;
+      if (angleDiff < 0) angleDiff += Math.PI * 2;
+
+      if (angleDiff < 0.15) {
+        // Sweep is on the blip — make it bright
+        if (!blipVisibility[blip.id]) {
+          blipVisibility[blip.id] = { alpha: 1, lastSweepTime: timestamp };
+        }
+        blipVisibility[blip.id].alpha = 1;
+        blipVisibility[blip.id].lastSweepTime = timestamp;
+      } else if (blipVisibility[blip.id]) {
+        // Fade out
+        const elapsed = timestamp - blipVisibility[blip.id].lastSweepTime;
+        blipVisibility[blip.id].alpha = Math.max(0, 1 - (elapsed / BLIP_FADE_TIME));
+      }
+
+      const vis = blipVisibility[blip.id];
+      if (!vis || vis.alpha <= 0) return;
+
+      const alpha = vis.alpha;
+      const color = blip.hostile ? RED_ALERT : GREEN_BRIGHT;
+
+      // Draw diamond blip
+      const size = 4;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = alpha * 6;
+
+      ctx.beginPath();
+      ctx.moveTo(bx, by - size);
+      ctx.lineTo(bx + size, by);
+      ctx.lineTo(bx, by + size);
+      ctx.lineTo(bx - size, by);
+      ctx.closePath();
+      ctx.fill();
+
+      // ID label
+      ctx.font = '9px "Courier New", monospace';
+      ctx.fillStyle = color;
+      ctx.shadowBlur = 0;
+      ctx.fillText(blip.id, bx + size + 3, by + 3);
+
+      ctx.restore();
+    });
+  }
+
+  function drawBases() {
+    BASES.forEach(base => {
+      const [bx, by] = toCanvas(base.x, base.y);
+      const size = 5;
+
+      // Draw triangle
+      ctx.beginPath();
+      ctx.moveTo(bx, by - size);
+      ctx.lineTo(bx + size, by + size);
+      ctx.lineTo(bx - size, by + size);
+      ctx.closePath();
+      ctx.strokeStyle = GREEN_BRIGHT;
+      ctx.lineWidth = 1;
+      ctx.shadowColor = GREEN_BRIGHT;
+      ctx.shadowBlur = 4;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Label
+      ctx.font = '8px "Courier New", monospace';
+      ctx.fillStyle = GREEN_MID;
+      ctx.fillText(base.name, bx + size + 3, by + 2);
+    });
+  }
+
+  function drawCities() {
+    CITIES.forEach(city => {
+      const [cx, cy] = toCanvas(city.x, city.y);
+
+      // Small circle
+      ctx.beginPath();
+      ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+      ctx.strokeStyle = '#006622';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Dot in center
+      ctx.beginPath();
+      ctx.arc(cx, cy, 1, 0, Math.PI * 2);
+      ctx.fillStyle = '#006622';
+      ctx.fill();
+
+      // Label
+      ctx.font = '7px "Courier New", monospace';
+      ctx.fillStyle = '#005519';
+      ctx.fillText(city.name, cx + 5, cy + 2);
+    });
+  }
+
+  // ═══════════════════════════════════════════
+  // RENDER LOOP
+  // ═══════════════════════════════════════════
+
+  function render(timestamp) {
+    const w = canvas.width / window.devicePixelRatio;
+    const h = canvas.height / window.devicePixelRatio;
+
+    // Clear
+    ctx.clearRect(0, 0, w, h);
+
+    // Draw layers
+    drawRangeRings();
+    drawMap();
+    drawCities();
+    drawBases();
+    drawSweep(timestamp);
+    drawBlips(timestamp);
+
+    // Generate log entries periodically
+    if (timestamp - lastLogTime > LOG_INTERVAL) {
+      generateLogEntry();
+      lastLogTime = timestamp;
+    }
+
+    requestAnimationFrame(render);
+  }
+
+  // ═══════════════════════════════════════════
+  // INIT
+  // ═══════════════════════════════════════════
+
+  window.addEventListener('load', () => {
+    setupCanvas();
+    updateClock();
+    setInterval(updateClock, 1000);
+    initLog();
+    lastLogTime = performance.now();
+    requestAnimationFrame(render);
+  });
+
+  window.addEventListener('resize', resizeCanvas);
+</script>
+</body>
+</html>

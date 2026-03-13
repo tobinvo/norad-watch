@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NORAD WATCH</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="crt-glow"></div>
+<div class="crt-vignette"></div>
+<div class="crt-overlay"></div>
+
+<div class="layout">
+  <!-- Top Bar -->
+  <div class="top-bar">
+    <span class="title">NORAD WATCH</span>
+    <span class="status" id="gameStatus">■ STANDING BY ■</span>
+    <span class="clock" id="utcClock">0000Z</span>
+  </div>
+
+  <!-- Left Panel: Contact List -->
+  <div class="panel left-panel">
+    <div class="panel-header">CONTACT LIST</div>
+    <table class="contact-table">
+      <thead>
+        <tr>
+          <th>TRACK</th>
+          <th>TYPE</th>
+          <th>HDG</th>
+          <th>SPD</th>
+          <th>ALT</th>
+          <th>STATUS</th>
+        </tr>
+      </thead>
+      <tbody id="contactBody">
+      </tbody>
+    </table>
+    <div id="selectionDetail" class="selection-detail"></div>
+  </div>
+
+  <!-- Center: Radar Canvas -->
+  <div class="center-area">
+    <canvas id="radarCanvas"></canvas>
+    <div class="instructions">CLICK BASE → CLICK HOSTILE TO SCRAMBLE</div>
+  </div>
+
+  <!-- Right Panel: Asset Status -->
+  <div class="panel right-panel">
+    <div class="panel-header">ASSET STATUS</div>
+    <div id="assetList"></div>
+  </div>
+
+  <!-- Bottom Bar: Event Log -->
+  <div class="bottom-bar">
+    <div class="panel-header">EVENT LOG</div>
+    <div class="event-log" id="eventLog"></div>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
