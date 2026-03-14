@@ -12,6 +12,7 @@
   --red-alert: #ff4444;
   --yellow-warn: #ffcc00;
   --orange-warn: #ff8800;
+  --amber: #ff8800;
   --bg-dark: #0a0a0a;
   --bg-panel: #0d0d0d;
   --border-green: #004d14;
@@ -108,6 +109,16 @@ body {
   text-shadow: 0 0 8px rgba(255, 204, 0, 0.4);
 }
 
+.top-bar .defcon {
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.top-bar .wave {
+  color: var(--green-mid);
+  font-size: 12px;
+}
+
 .top-bar .clock {
   color: var(--green-bright);
   text-shadow: 0 0 6px rgba(0, 255, 65, 0.3);
@@ -167,13 +178,35 @@ body {
   text-shadow: 0 0 4px rgba(255, 68, 68, 0.4);
 }
 
+.contact-table tr.unknown-contact td {
+  color: var(--amber);
+}
+
+.contact-table tr.friendly td {
+  color: var(--green-dim);
+}
+
 .contact-table tr.selected td {
+  background: rgba(255, 136, 0, 0.1);
+}
+
+.contact-table tr.hostile.selected td {
   background: rgba(255, 68, 68, 0.1);
 }
 
 .contact-table tr.neutralized td {
-  color: var(--green-dim);
+  color: #1a1a1a;
   text-decoration: line-through;
+}
+
+.mark-controls {
+  margin-top: 6px;
+  padding: 4px 0;
+}
+
+.mark-hint {
+  color: var(--amber);
+  font-size: 9px;
 }
 
 .contact-table tr {
@@ -234,6 +267,43 @@ body {
   border-top: 1px solid #002a0b;
   color: var(--green-mid);
   font-size: 9px;
+}
+
+/* Aircraft selection rows (base detail panel) */
+.aircraft-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  margin: 1px 0;
+}
+
+.aircraft-row:hover {
+  background: rgba(0, 255, 65, 0.08);
+  border-color: var(--green-dim);
+}
+
+.aircraft-row.aircraft-selected {
+  background: rgba(0, 255, 65, 0.15);
+  border-color: var(--green-bright);
+  box-shadow: 0 0 4px rgba(0, 255, 65, 0.2);
+}
+
+.aircraft-stats {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-green);
+  font-size: 10px;
+}
+
+.aircraft-desc {
+  margin-top: 4px;
+  color: var(--green-mid);
+  font-size: 9px;
+  line-height: 1.4;
+  font-style: italic;
 }
 
 /* Right panel */
@@ -333,6 +403,69 @@ body {
   pointer-events: none;
   text-align: center;
   z-index: 10;
+}
+
+/* Scoring overlay */
+.scoring-overlay {
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(10, 10, 10, 0.92);
+  border: 1px solid var(--border-green);
+  padding: 24px 36px;
+  z-index: 50;
+  font-size: 12px;
+  min-width: 280px;
+  text-align: center;
+}
+
+.scoring-title {
+  color: var(--green-bright);
+  font-size: 18px;
+  font-weight: bold;
+  letter-spacing: 3px;
+  margin-bottom: 12px;
+  text-shadow: 0 0 12px rgba(0, 255, 65, 0.5);
+}
+
+.scoring-line {
+  border-bottom: 1px solid var(--border-green);
+  margin: 8px 0;
+}
+
+.scoring-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  color: var(--green-text);
+}
+
+.scoring-row .hostile {
+  color: var(--red-alert);
+}
+
+.scoring-total {
+  color: var(--green-bright);
+  font-size: 16px;
+  font-weight: bold;
+  margin-top: 8px;
+  letter-spacing: 2px;
+  text-shadow: 0 0 8px rgba(0, 255, 65, 0.4);
+}
+
+.scoring-defcon {
+  color: var(--yellow-warn);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.scoring-hint {
+  color: var(--green-dim);
+  font-size: 10px;
+  margin-top: 12px;
+  letter-spacing: 1px;
 }
 
 /* Scrollbar */

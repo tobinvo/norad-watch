@@ -9,98 +9,172 @@ export const GREEN_MAP = '#005a1a';
 export const GREEN_TEXT = '#00dd38';
 export const RED_ALERT = '#ff4444';
 export const YELLOW_WARN = '#ffcc00';
+export const AMBER = '#ff8800';
 
 // ═══════════════════════════════════════════
 // TIMING
 // ═══════════════════════════════════════════
 
-export const SWEEP_PERIOD = 8000; // ms for full rotation
+export const SWEEP_PERIOD = 8000; // ms for full rotation (real-time)
 export const SWEEP_TRAIL_ANGLE = Math.PI / 6; // 30 degrees
-export const BLIP_FADE_TIME = 3500; // ms after sweep passes
+export const BLIP_FADE_TIME = 3500; // ms after sweep passes (real-time)
+
+// Game time multiplier: 1 real second = GAME_SPEED game-seconds
+export const GAME_SPEED = 30;
 
 // ═══════════════════════════════════════════
-// GAME BALANCE
+// GAME BALANCE (all distances in nautical miles)
 // ═══════════════════════════════════════════
 
-// Speeds in normalized units per second (map is 0-1)
-export const BOMBER_SPEED = 0.012;
-
-// Weapons engagement range (normalized distance)
-export const WEAPONS_RANGE = 0.025;
-
-// City damage radius — threat "impacts" when this close
-export const CITY_IMPACT_RADIUS = 0.015;
-
-// Spawn timing
-export const SPAWN_INTERVAL = 8000; // ms between bomber spawns
-export const MAX_THREATS_PER_WAVE = 5;
-
-// Radar center (roughly center of CONUS)
-export const RADAR_CENTER_X = 0.42;
-export const RADAR_CENTER_Y = 0.46;
-
-// Base radar range (normalized) — default detection radius
-export const BASE_RADAR_RANGE = 0.55;
-// AWACS extends this by:
-export const AWACS_RADAR_BONUS = 0.25;
-
-// Fuel
-export const BINGO_FUEL_THRESHOLD = 0.25; // 25% triggers bingo warning
+export const CITY_IMPACT_RADIUS = 5;
+export const AWACS_DETECTION_RANGE = 200;
+export const ARRIVAL_THRESHOLD = 3; // nm — "close enough" for RTB/CAP
 
 // ═══════════════════════════════════════════
-// AIRCRAFT TYPES
+// CLASSIFICATION & IFF
+// ═══════════════════════════════════════════
+
+export const SWEEPS_TO_CLASSIFY = 3;    // radar sweeps before auto-classification
+export const ID_RANGE = 5;              // nm — visual ID distance
+export const ID_TIME = 10;             // game-seconds to complete visual ID
+export const CIVILIAN_KILL_PENALTY = -500;
+
+// ═══════════════════════════════════════════
+// CIVILIAN TRAFFIC
+// ═══════════════════════════════════════════
+
+export const CIVILIAN_SPAWN_INTERVAL = 600000; // game-ms between spawns (~20s real at 30x)
+export const CIVILIAN_START_COUNT = 3;          // civilians pre-placed at game start
+
+export const CIVILIAN_TYPES = {
+  AIRLINER: {
+    speed: [450, 550],
+    altitude: [33000, 41000],
+    label: 'AIRLINER',
+  },
+  REGIONAL: {
+    speed: [350, 430],
+    altitude: [25000, 33000],
+    label: 'REGIONAL JET',
+  },
+  CARGO: {
+    speed: [420, 500],
+    altitude: [30000, 39000],
+    label: 'CARGO',
+  },
+};
+
+// ═══════════════════════════════════════════
+// THREAT TYPES — speeds in knots
+// ═══════════════════════════════════════════
+
+export const THREAT_TYPES = {
+  BOMBER: {
+    speed: 480,
+    altitudeMin: 35000,
+    altitudeMax: 45000,
+    label: 'BOMBER',
+    points: 100,
+  },
+  FIGHTER: {
+    speed: 720,
+    altitudeMin: 25000,
+    altitudeMax: 35000,
+    label: 'FIGHTER',
+    points: 150,
+    evasionChance: 0.5,
+    evasionRange: 30,
+    evasionCooldown: 3000,
+  },
+  CRUISE_MISSILE: {
+    speed: 550,
+    altitudeMin: 100,
+    altitudeMax: 500,
+    label: 'CRSMSL',
+    points: 200,
+    detectionRange: 40,
+  },
+  ICBM: {
+    speed: 15000,
+    altitudeMin: 100000,
+    altitudeMax: 300000,
+    label: 'ICBM',
+    points: 500,
+    boostDuration: 45000,
+  },
+};
+
+// ═══════════════════════════════════════════
+// WAVE SYSTEM (game-ms)
+// ═══════════════════════════════════════════
+
+export const WAVE_BREAK = 90000;
+export const WAVE_FIRST_DELAY = 45000;
+
+// ═══════════════════════════════════════════
+// AIRCRAFT TYPES — speeds in knots
+// Fuel rebalanced for nm-scale sector (500nm across)
 // ═══════════════════════════════════════════
 
 export const AIRCRAFT_TYPES = {
   'F-15A': {
     name: 'F-15A Eagle',
     callsign: 'EAGLE',
-    speed: 0.035,          // fast
-    fuelCapacity: 100,     // max fuel
-    fuelBurnRate: 1.2,     // fuel/sec at cruise
-    weapons: 4,            // AMRAAMs
+    role: 'AIR SUPERIORITY',
+    desc: 'Fast, heavy loadout. Best all-around interceptor but burns fuel quickly.',
+    speed: 900,
+    fuelCapacity: 100,
+    fuelBurnRate: 0.04,     // ~83s real endurance, 300nm round trip
+    weapons: 4,
     weaponType: 'AMRAAM',
-    weaponsRange: 0.025,
+    weaponsRange: 25,
+    speedRating: 3,
+    rangeRating: 2,
+    enduranceRating: 2,
   },
   'F-16C': {
-    callsign: 'VIPER',
     name: 'F-16C Falcon',
-    speed: 0.028,          // medium
+    callsign: 'VIPER',
+    role: 'MULTIROLE',
+    desc: 'Fuel-efficient with good endurance. Fewer weapons but can stay on station longer.',
+    speed: 780,
     fuelCapacity: 100,
-    fuelBurnRate: 1.0,     // better fuel economy
-    weapons: 2,            // AMRAAMs
+    fuelBurnRate: 0.028,    // ~119s real endurance, 390nm round trip
+    weapons: 2,
     weaponType: 'AMRAAM',
-    weaponsRange: 0.025,
+    weaponsRange: 25,
+    speedRating: 2,
+    rangeRating: 2,
+    enduranceRating: 3,
   },
   'F-106A': {
     name: 'F-106A Delta Dart',
     callsign: 'DART',
-    speed: 0.032,          // fast
+    role: 'INTERCEPTOR',
+    desc: 'Fast with nuclear Genie rocket — one shot, guaranteed kill. Very short range, burns fuel fast.',
+    speed: 850,
     fuelCapacity: 100,
-    fuelBurnRate: 1.8,     // thirsty
-    weapons: 1,            // Genie nuclear rocket
+    fuelBurnRate: 0.065,    // ~51s real endurance, 177nm round trip
+    weapons: 1,
     weaponType: 'GENIE',
-    weaponsRange: 0.018,   // shorter range
+    weaponsRange: 8,
+    speedRating: 3,
+    rangeRating: 1,
+    enduranceRating: 1,
   },
   'E-3A': {
     name: 'E-3A Sentry AWACS',
     callsign: 'SENTRY',
-    speed: 0.015,          // slow
+    role: 'EARLY WARNING',
+    desc: 'No weapons. Extends radar detection range when airborne. Keep it safe.',
+    speed: 360,
     fuelCapacity: 100,
-    fuelBurnRate: 0.5,     // long endurance
-    weapons: 0,            // no weapons
+    fuelBurnRate: 0.014,    // ~238s real endurance, 360nm round trip
+    weapons: 0,
     weaponType: null,
     weaponsRange: 0,
+    speedRating: 1,
+    rangeRating: 0,
+    enduranceRating: 3,
   },
-};
-
-// ═══════════════════════════════════════════
-// BASE ROSTERS
-// ═══════════════════════════════════════════
-
-export const BASE_ROSTERS = {
-  'PETERSON AFB':  ['F-15A', 'F-15A', 'F-16C', 'F-16C', 'E-3A'],
-  'LANGLEY AFB':   ['F-15A', 'F-15A', 'F-15A', 'F-106A'],
-  'OTIS ANGB':     ['F-16C', 'F-16C', 'F-106A'],
-  'ELMENDORF AFB': ['F-15A', 'F-15A', 'F-106A', 'E-3A'],
 };

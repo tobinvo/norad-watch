@@ -1,6 +1,7 @@
-import { CITY_IMPACT_RADIUS, MAX_THREATS_PER_WAVE } from './constants.js';
+import { CITY_IMPACT_RADIUS, THREAT_TYPES, CIVILIAN_KILL_PENALTY } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
+import { isInProsecutionZone } from './sector.js';
 
 function dist(a, b) {
   const dx = a.x - b.x;
@@ -12,7 +13,7 @@ export function resolveEngagements() {
   for (const interceptor of state.interceptors) {
     if (interceptor.state !== 'AIRBORNE' || !interceptor.target) continue;
 
-    // No weapons — can't engage (AWACS or spent aircraft)
+    // No weapons
     if (interceptor.weapons <= 0) {
       interceptor.target = null;
       interceptor.state = 'RTB';
@@ -20,29 +21,52 @@ export function resolveEngagements() {
       continue;
     }
 
-    const threat = interceptor.target;
-    if (threat.state !== 'HOSTILE') {
+    const contact = interceptor.target;
+    if (contact.state !== 'ACTIVE') {
       interceptor.target = null;
       interceptor.state = 'RTB';
       addLog(`${interceptor.id} TARGET NEUTRALIZED — RTB`, '');
       continue;
     }
 
-    const d = dist(interceptor, threat);
+    // ICBM boost phase check
+    if (!contact.isCivilian) {
+      const threatSpec = THREAT_TYPES[contact.type];
+      if (threatSpec && threatSpec.boostDuration && state.gameTime > contact.boostEnd) {
+        interceptor.target = null;
+        interceptor.state = 'RTB';
+        addLog(`${interceptor.id} — ${contact.id} BEYOND INTERCEPT ENVELOPE — RTB`, 'warn');
+        continue;
+      }
+    }
+
+    const d = dist(interceptor, contact);
     const range = interceptor.spec.weaponsRange;
     if (d <= range) {
       const weaponName = interceptor.spec.weaponType;
       const callout = weaponName === 'GENIE' ? 'FOX ONE — GENIE' : 'FOX THREE';
-      addLog(`${interceptor.id} WEAPONS RANGE ON ${threat.id} — ${callout}`, 'alert');
+      addLog(`${interceptor.id} WEAPONS RANGE ON ${contact.id} — ${callout}`, 'alert');
 
       interceptor.weapons--;
-      threat.state = 'NEUTRALIZED';
-      state.threatsNeutralized++;
-      addLog(`${threat.id} SPLASH — KILL CONFIRMED`, 'alert');
-      state.effects.push({ x: threat.x, y: threat.y, type: 'kill', startTime: state.gameTime });
+      contact.state = 'NEUTRALIZED';
+
+      if (contact.isCivilian) {
+        // CIVILIAN SHOOTDOWN
+        state.civiliansKilled++;
+        contact.classification = 'IDENTIFIED';
+        contact.allegiance = 'FRIENDLY';
+        contact.classCategory = contact.typeLabel;
+        addLog(`■ CIVILIAN AIRCRAFT DESTROYED — ${contact.id} WAS ${contact.typeLabel} ■`, 'alert');
+        addLog(`■ CATASTROPHIC ERROR — CIVILIAN SHOOTDOWN ■`, 'alert');
+        state.effects.push({ x: contact.x, y: contact.y, type: 'impact', startTime: state.gameTime });
+      } else {
+        state.threatsNeutralized++;
+        const threatSpec = THREAT_TYPES[contact.type];
+        addLog(`${contact.id} SPLASH — KILL CONFIRMED (${threatSpec.label})`, 'alert');
+        state.effects.push({ x: contact.x, y: contact.y, type: 'kill', startTime: state.gameTime });
+      }
 
       interceptor.target = null;
-      // RTB if out of weapons, otherwise available for reassignment
       if (interceptor.weapons <= 0) {
         interceptor.state = 'RTB';
         addLog(`${interceptor.id} WINCHESTER — RTB`, '');
@@ -53,29 +77,51 @@ export function resolveEngagements() {
     }
   }
 
-  // Check threats reaching cities
-  for (const threat of state.threats) {
-    if (threat.state !== 'HOSTILE') continue;
+  // Check threats reaching cities (only non-civilian contacts with targets)
+  for (const contact of state.contacts) {
+    if (contact.state !== 'ACTIVE') continue;
 
-    const d = dist(threat, threat.targetCity);
+    // Civilians and contacts without city targets don't impact cities
+    if (contact.isCivilian || !contact.targetCity) continue;
+
+    const d = dist(contact, contact.targetCity);
     if (d <= CITY_IMPACT_RADIUS) {
-      threat.state = 'IMPACT';
-      threat.targetCity.hp = 0;
+      contact.state = 'IMPACT';
+      contact.targetCity.hp = 0;
       state.citiesHit++;
-      addLog(`${threat.id} IMPACT — ${threat.targetCity.name} HIT`, 'alert');
-      state.effects.push({ x: threat.targetCity.x, y: threat.targetCity.y, type: 'impact', startTime: state.gameTime });
+
+      // Reveal type on impact
+      contact.classification = 'IDENTIFIED';
+      contact.allegiance = 'HOSTILE';
+      const typeLabel = THREAT_TYPES[contact.type]?.label || contact.type;
+      contact.classCategory = typeLabel;
+      addLog(`${contact.id} ${typeLabel} IMPACT — ${contact.targetCity.name} HIT`, 'alert');
+      state.effects.push({ x: contact.targetCity.x, y: contact.targetCity.y, type: 'impact', startTime: state.gameTime });
 
       for (const i of state.interceptors) {
-        if (i.target === threat) {
+        if (i.target === contact) {
           i.target = null;
+          i.state = 'RTB';
+        }
+        if (i.idTarget === contact) {
+          i.idTarget = null;
+          i.idProgress = 0;
           i.state = 'RTB';
         }
       }
     }
 
     // Off-map cleanup
-    if (threat.x < -0.05 || threat.x > 1.05 || threat.y < -0.05 || threat.y > 1.05) {
-      threat.state = 'NEUTRALIZED';
+    if (!isInProsecutionZone(contact.x, contact.y)) {
+      contact.state = 'NEUTRALIZED';
+    }
+  }
+
+  // Civilian exit cleanup — civilians that leave the sector
+  for (const contact of state.contacts) {
+    if (contact.state !== 'ACTIVE' || !contact.isCivilian) continue;
+    if (!isInProsecutionZone(contact.x, contact.y)) {
+      contact.state = 'NEUTRALIZED';
     }
   }
 }
@@ -83,14 +129,14 @@ export function resolveEngagements() {
 export function checkWinLose() {
   if (state.status !== 'ACTIVE') return;
 
-  const activeThreats = state.threats.filter(t => t.state === 'HOSTILE');
-  const allSpawned = state.totalSpawned >= MAX_THREATS_PER_WAVE;
+  // Only count non-civilian active contacts for win condition
+  const activeThreats = state.contacts.filter(t => t.state === 'ACTIVE' && !t.isCivilian);
 
-  if (allSpawned && activeThreats.length === 0) {
+  if (state.wavesComplete && activeThreats.length === 0) {
     const livingCities = state.cities.filter(c => c.hp > 0);
     if (livingCities.length > 0) {
       state.status = 'WON';
-      addLog('ALL THREATS NEUTRALIZED — SECTOR CLEAR', 'alert');
+      addLog('ALL WAVES NEUTRALIZED — SECTOR CLEAR', 'alert');
       addLog(`CITIES PRESERVED: ${livingCities.length}/${state.cities.length}`, '');
     } else {
       state.status = 'LOST';

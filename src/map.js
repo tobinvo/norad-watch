@@ -1,123 +1,159 @@
-import { GREEN_MAP } from './constants.js';
+import { GREEN_MAP, GREEN_DIM, GREEN_MID } from './constants.js';
+import { SECTOR, COASTLINE, LONG_ISLAND, toCanvas, nmToPixels } from './sector.js';
 
 // ═══════════════════════════════════════════
-// NORTH AMERICA MAP COORDINATES
-// Normalized 0-1 range, scaled to canvas
+// SECTOR MAP DRAWING
 // ═══════════════════════════════════════════
 
-export const US_OUTLINE = [
-  [0.14, 0.32], [0.13, 0.35], [0.12, 0.38], [0.11, 0.41],
-  [0.10, 0.44], [0.09, 0.47], [0.08, 0.50], [0.08, 0.53],
-  [0.09, 0.56], [0.10, 0.58], [0.11, 0.60], [0.12, 0.62],
-  [0.14, 0.64], [0.16, 0.65],
-  [0.18, 0.66], [0.22, 0.67], [0.26, 0.68], [0.30, 0.70],
-  [0.34, 0.72], [0.38, 0.74], [0.40, 0.74],
-  [0.42, 0.73], [0.44, 0.72], [0.46, 0.73],
-  [0.48, 0.72], [0.50, 0.71],
-  [0.52, 0.72], [0.54, 0.73], [0.56, 0.76], [0.57, 0.79],
-  [0.56, 0.80], [0.54, 0.78], [0.53, 0.75],
-  [0.52, 0.73], [0.54, 0.71],
-  [0.56, 0.70], [0.58, 0.68], [0.60, 0.66],
-  [0.62, 0.64], [0.64, 0.61], [0.65, 0.58],
-  [0.66, 0.56], [0.68, 0.54],
-  [0.69, 0.52], [0.70, 0.50], [0.69, 0.48],
-  [0.70, 0.46], [0.71, 0.44], [0.72, 0.42],
-  [0.71, 0.40], [0.70, 0.38],
-  [0.71, 0.36], [0.72, 0.34], [0.71, 0.32],
-  [0.70, 0.30], [0.69, 0.28],
-  [0.70, 0.26], [0.71, 0.24], [0.70, 0.22],
-  [0.68, 0.22], [0.64, 0.24], [0.60, 0.26],
-  [0.56, 0.28], [0.52, 0.28], [0.48, 0.30],
-  [0.44, 0.30], [0.40, 0.30], [0.36, 0.30],
-  [0.32, 0.30], [0.28, 0.30],
-  [0.24, 0.30], [0.20, 0.30], [0.16, 0.30],
-  [0.14, 0.32],
-];
-
-export const CANADA_OUTLINE = [
-  [0.10, 0.18], [0.09, 0.21], [0.10, 0.24], [0.11, 0.27],
-  [0.12, 0.29], [0.14, 0.32], [0.16, 0.30],
-  [0.20, 0.30], [0.24, 0.30], [0.28, 0.30],
-  [0.32, 0.30], [0.36, 0.30], [0.40, 0.30],
-  [0.44, 0.30], [0.48, 0.30], [0.52, 0.28],
-  [0.56, 0.28], [0.60, 0.26], [0.64, 0.24],
-  [0.68, 0.22], [0.70, 0.22],
-  [0.72, 0.20], [0.74, 0.18], [0.76, 0.16],
-  [0.74, 0.14], [0.72, 0.13],
-  [0.70, 0.12], [0.68, 0.10], [0.66, 0.09],
-  [0.62, 0.08], [0.56, 0.06], [0.50, 0.05],
-  [0.44, 0.04], [0.38, 0.05], [0.32, 0.06],
-  [0.26, 0.08], [0.20, 0.10], [0.16, 0.12],
-  [0.12, 0.14], [0.10, 0.18],
-];
-
-export const MEXICO_OUTLINE = [
-  [0.14, 0.64], [0.16, 0.65], [0.18, 0.66],
-  [0.22, 0.67], [0.26, 0.68], [0.30, 0.70],
-  [0.34, 0.72], [0.38, 0.74],
-  [0.38, 0.76], [0.36, 0.80], [0.34, 0.84],
-  [0.32, 0.86],
-  [0.34, 0.88], [0.38, 0.86], [0.40, 0.84],
-  [0.36, 0.82], [0.32, 0.82],
-  [0.28, 0.80], [0.24, 0.78], [0.20, 0.76],
-  [0.16, 0.74], [0.14, 0.72], [0.12, 0.68],
-  [0.10, 0.66], [0.08, 0.68], [0.07, 0.72],
-  [0.08, 0.74], [0.10, 0.72], [0.12, 0.68],
-  [0.14, 0.64],
-];
-
-export const GREAT_LAKES = [
-  { points: [
-    [0.42, 0.30], [0.44, 0.28], [0.46, 0.27], [0.48, 0.27],
-    [0.50, 0.28], [0.50, 0.30], [0.48, 0.31], [0.46, 0.31],
-    [0.44, 0.31], [0.42, 0.30],
-  ]},
-  { points: [
-    [0.50, 0.31], [0.50, 0.33], [0.49, 0.36], [0.48, 0.38],
-    [0.49, 0.39], [0.50, 0.37], [0.51, 0.34], [0.51, 0.31],
-    [0.50, 0.31],
-  ]},
-  { points: [
-    [0.52, 0.29], [0.54, 0.28], [0.55, 0.30], [0.55, 0.33],
-    [0.54, 0.35], [0.52, 0.34], [0.51, 0.32], [0.52, 0.29],
-  ]},
-  { points: [
-    [0.54, 0.36], [0.56, 0.35], [0.60, 0.34], [0.62, 0.35],
-    [0.61, 0.36], [0.58, 0.37], [0.55, 0.37], [0.54, 0.36],
-  ]},
-  { points: [
-    [0.62, 0.33], [0.64, 0.32], [0.66, 0.32], [0.66, 0.33],
-    [0.64, 0.34], [0.62, 0.33],
-  ]},
-];
-
-export const ALASKA_OUTLINE = [
-  [0.02, 0.20], [0.04, 0.16], [0.06, 0.14], [0.08, 0.12],
-  [0.10, 0.14], [0.12, 0.16], [0.10, 0.18],
-  [0.08, 0.20], [0.06, 0.22], [0.04, 0.22], [0.02, 0.20],
-];
-
-export function drawMapOutline(ctx, points, toCanvas, color, lineWidth) {
+function drawPolyline(ctx, points, toCanvasFn, color, lineWidth) {
   if (points.length < 2) return;
   ctx.beginPath();
-  ctx.strokeStyle = color || GREEN_MAP;
-  ctx.lineWidth = lineWidth || 1;
-  const [sx, sy] = toCanvas(points[0][0], points[0][1]);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  const [sx, sy] = toCanvasFn(points[0][0], points[0][1]);
   ctx.moveTo(sx, sy);
   for (let i = 1; i < points.length; i++) {
-    const [px, py] = toCanvas(points[i][0], points[i][1]);
+    const [px, py] = toCanvasFn(points[i][0], points[i][1]);
     ctx.lineTo(px, py);
   }
   ctx.stroke();
 }
 
-export function drawMap(ctx, toCanvas) {
-  drawMapOutline(ctx, US_OUTLINE, toCanvas, GREEN_MAP, 1.2);
-  drawMapOutline(ctx, CANADA_OUTLINE, toCanvas, '#003d10', 0.8);
-  drawMapOutline(ctx, MEXICO_OUTLINE, toCanvas, '#002a0b', 0.7);
-  drawMapOutline(ctx, ALASKA_OUTLINE, toCanvas, '#003d10', 0.8);
+function drawSectorBoundary(ctx) {
+  const ext = SECTOR.extentX;
+  const extY = SECTOR.extentY;
 
-  GREAT_LAKES.forEach(lake => {
-    drawMapOutline(ctx, lake.points, toCanvas, '#004015', 0.7);
-  });
+  // Sector boundary — dashed green
+  const corners = [
+    toCanvas(-ext, extY),
+    toCanvas(ext, extY),
+    toCanvas(ext, -extY),
+    toCanvas(-ext, -extY),
+  ];
+
+  ctx.strokeStyle = GREEN_DIM;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(corners[0][0], corners[0][1]);
+  for (let i = 1; i < corners.length; i++) {
+    ctx.lineTo(corners[i][0], corners[i][1]);
+  }
+  ctx.closePath();
+  ctx.stroke();
+
+  // Prosecution boundary — dimmer dashed
+  const buf = SECTOR.prosecutionBuffer;
+  const pCorners = [
+    toCanvas(-ext - buf, extY + buf),
+    toCanvas(ext + buf, extY + buf),
+    toCanvas(ext + buf, -extY - buf),
+    toCanvas(-ext - buf, -extY - buf),
+  ];
+
+  ctx.strokeStyle = '#001a08';
+  ctx.lineWidth = 0.5;
+  ctx.setLineDash([3, 6]);
+  ctx.beginPath();
+  ctx.moveTo(pCorners[0][0], pCorners[0][1]);
+  for (let i = 1; i < pCorners.length; i++) {
+    ctx.lineTo(pCorners[i][0], pCorners[i][1]);
+  }
+  ctx.closePath();
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawGrid(ctx) {
+  const ext = SECTOR.extentX;
+  const extY = SECTOR.extentY;
+  const step = 50; // nm grid lines
+
+  ctx.strokeStyle = '#0a1a0d';
+  ctx.lineWidth = 0.3;
+
+  // Vertical lines
+  for (let x = -ext; x <= ext; x += step) {
+    const [px1, py1] = toCanvas(x, extY);
+    const [px2, py2] = toCanvas(x, -extY);
+    ctx.beginPath();
+    ctx.moveTo(px1, py1);
+    ctx.lineTo(px2, py2);
+    ctx.stroke();
+  }
+
+  // Horizontal lines
+  for (let y = -extY; y <= extY; y += step) {
+    const [px1, py1] = toCanvas(-ext, y);
+    const [px2, py2] = toCanvas(ext, y);
+    ctx.beginPath();
+    ctx.moveTo(px1, py1);
+    ctx.lineTo(px2, py2);
+    ctx.stroke();
+  }
+
+  // Grid labels (every 100nm)
+  ctx.font = '8px "Courier New", monospace';
+  ctx.fillStyle = '#0d2a10';
+  for (let x = -200; x <= 200; x += 100) {
+    if (x === 0) continue;
+    const [px, py] = toCanvas(x, -extY);
+    ctx.fillText(`${x}`, px - 10, py - 4);
+  }
+  for (let y = -200; y <= 200; y += 100) {
+    if (y === 0) continue;
+    const [px, py] = toCanvas(-ext, y);
+    ctx.fillText(`${y}`, px + 4, py + 3);
+  }
+}
+
+function drawScaleBar(ctx, canvasW, canvasH) {
+  const pxPerNm = nmToPixels();
+  const barNm = 50;
+  const barPx = barNm * pxPerNm;
+
+  const x = canvasW - barPx - 20;
+  const y = canvasH - 20;
+
+  ctx.strokeStyle = GREEN_DIM;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  // Main bar
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + barPx, y);
+  // End ticks
+  ctx.moveTo(x, y - 4);
+  ctx.lineTo(x, y + 4);
+  ctx.moveTo(x + barPx, y - 4);
+  ctx.lineTo(x + barPx, y + 4);
+  // Midpoint tick
+  ctx.moveTo(x + barPx / 2, y - 2);
+  ctx.lineTo(x + barPx / 2, y + 2);
+  ctx.stroke();
+
+  ctx.font = '8px "Courier New", monospace';
+  ctx.fillStyle = GREEN_DIM;
+  ctx.fillText(`${barNm} NM`, x + barPx / 2 - 12, y - 6);
+}
+
+function drawSectorLabel(ctx) {
+  const [cx, cy] = toCanvas(0, SECTOR.extentY);
+  ctx.font = '9px "Courier New", monospace';
+  ctx.fillStyle = '#0d3a12';
+  ctx.fillText(SECTOR.name, cx - 40, cy + 14);
+}
+
+export function drawMap(ctx) {
+  const w = ctx.canvas.width / window.devicePixelRatio;
+  const h = ctx.canvas.height / window.devicePixelRatio;
+
+  drawGrid(ctx);
+  drawSectorBoundary(ctx);
+
+  // Coastline
+  drawPolyline(ctx, COASTLINE, toCanvas, GREEN_MAP, 1.2);
+  drawPolyline(ctx, LONG_ISLAND, toCanvas, GREEN_MAP, 1.0);
+
+  drawScaleBar(ctx, w, h);
+  drawSectorLabel(ctx);
 }

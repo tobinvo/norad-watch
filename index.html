@@ -16,7 +16,9 @@
   <!-- Top Bar -->
   <div class="top-bar">
     <span class="title">NORAD WATCH</span>
+    <span class="defcon" id="defconLevel">DEFCON 5</span>
     <span class="status" id="gameStatus">■ STANDING BY ■</span>
+    <span class="wave" id="waveIndicator"></span>
     <span class="clock" id="utcClock">0000Z</span>
   </div>
 
@@ -27,10 +29,10 @@
       <thead>
         <tr>
           <th>TRACK</th>
+          <th>IFF</th>
           <th>TYPE</th>
           <th>HDG</th>
-          <th>SPD</th>
-          <th>ALT</th>
+          <th>MPH</th>
           <th>STATUS</th>
         </tr>
       </thead>
@@ -43,7 +45,8 @@
   <!-- Center: Radar Canvas -->
   <div class="center-area">
     <canvas id="radarCanvas"></canvas>
-    <div class="instructions">CLICK BASE → CLICK HOSTILE TO SCRAMBLE</div>
+    <div class="instructions">LEFT-CLICK SELECT | RIGHT-CLICK ACTION | SPACE PAUSE | R RESTART</div>
+    <div class="scoring-overlay" id="scoringOverlay"></div>
   </div>
 
   <!-- Right Panel: Asset Status -->

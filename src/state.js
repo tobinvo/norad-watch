@@ -6,26 +6,42 @@ export const state = {
   // Timing
   sweepAngle: 0,
   lastTimestamp: 0,
-  gameTime: 0, // total elapsed ms
+  gameTime: 0, // total elapsed game-ms
 
   // Entities
   bases: [],
-  threats: [],
+  contacts: [],           // ALL radar contacts (threats + civilians)
   interceptors: [],
   cities: [],
+  radarSites: [],         // { name, x, y, rangeNm }
 
   // Counters for ID generation
-  nextThreatNum: 1,
+  nextContactNum: 1,
   nextInterceptorNum: 1,
 
-  // Spawning
+  // Spawning / Waves
   lastSpawnTime: 0,
   totalSpawned: 0,
+  currentWave: 0,
+  waveSpawnIndex: 0,
+  waveActive: false,
+  waveBreakUntil: 0,
+  wavesComplete: false,
+
+  // Civilian traffic
+  lastCivilianSpawn: 0,
+
+  // DEFCON
+  defcon: 5,
+
+  // Scoring
+  score: 0,
 
   // Selection state
-  selectedBase: null,         // base object or null
-  selectedThreat: null,       // threat object or null
-  selectedInterceptor: null,  // interceptor object or null
+  selectedBase: null,
+  selectedThreat: null,          // selected contact (threat or civilian)
+  selectedInterceptor: null,
+  selectedReadyInterceptor: null,
 
   // Radar blip visibility (keyed by entity id)
   blipVisibility: {},
@@ -34,11 +50,12 @@ export const state = {
   logEntries: [],
 
   // Visual effects
-  effects: [], // { x, y, type: 'kill'|'impact', startTime }
+  effects: [],
 
   // Game status
   paused: false,
-  status: 'ACTIVE', // ACTIVE, WON, LOST
+  status: 'ACTIVE',
   threatsNeutralized: 0,
   citiesHit: 0,
+  civiliansKilled: 0,
 };

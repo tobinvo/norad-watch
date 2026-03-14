@@ -1,4 +1,7 @@
 import { state } from './state.js';
+import { THREAT_TYPES, GAME_SPEED, CIVILIAN_KILL_PENALTY } from './constants.js';
+import { WAVES } from '../data/scenarios.js';
+import { ktsToMph } from './units.js';
 
 // ═══════════════════════════════════════════
 // EVENT LOG
@@ -28,41 +31,64 @@ export function renderLog() {
 // CONTACT LIST (LEFT PANEL)
 // ═══════════════════════════════════════════
 
+function allegianceClass(contact) {
+  if (contact.allegiance === 'HOSTILE') return 'hostile';
+  if (contact.allegiance === 'FRIENDLY') return 'friendly';
+  return 'unknown-contact';
+}
+
+function allegianceSymbol(contact) {
+  if (contact.allegiance === 'HOSTILE') return '✕';
+  if (contact.allegiance === 'FRIENDLY') return '▲';
+  return '?';
+}
+
+function displayType(contact) {
+  if (contact.classification === 'IDENTIFIED') {
+    return contact.classCategory || contact.typeLabel;
+  }
+  if (contact.classification === 'CLASSIFIED') {
+    return contact.classCategory || 'CLASSIFIED';
+  }
+  return 'UNKNOWN';
+}
+
 export function renderContacts() {
   const tbody = document.getElementById('contactBody');
   tbody.innerHTML = '';
 
-  const detectedThreats = state.threats.filter(t => t.detected);
+  const detectedContacts = state.contacts.filter(t => t.detected);
 
-  for (const threat of detectedThreats) {
+  for (const contact of detectedContacts) {
     const tr = document.createElement('tr');
-    const isActive = threat.state === 'HOSTILE';
-    const assigned = state.interceptors.filter(i => i.target === threat && i.state === 'AIRBORNE');
+    const isActive = contact.state === 'ACTIVE';
+    const assigned = state.interceptors.filter(i =>
+      (i.target === contact && i.state === 'AIRBORNE') ||
+      (i.idTarget === contact && i.state === 'ID_MISSION')
+    );
 
-    if (isActive) {
-      tr.className = 'hostile';
-    } else {
-      tr.className = 'neutralized';
-    }
-    if (state.selectedThreat === threat) tr.classList.add('selected');
+    tr.className = allegianceClass(contact);
+    if (!isActive) tr.classList.add('neutralized');
+    if (state.selectedThreat === contact) tr.classList.add('selected');
 
-    let statusText = threat.state;
+    let statusText = contact.state === 'NEUTRALIZED' ? 'KILL' : contact.state;
     if (isActive && assigned.length > 0) {
-      statusText = `INTCPT (${assigned.length})`;
+      const idAssigned = assigned.some(i => i.state === 'ID_MISSION');
+      statusText = idAssigned ? 'ID' : `INTCPT (${assigned.length})`;
     }
 
     tr.innerHTML = `
-      <td>${threat.id}</td>
-      <td>${threat.type}</td>
-      <td>${isActive ? threat.hdgDeg : '---'}</td>
-      <td>${isActive ? Math.round(threat.speed * 50000) : '---'}</td>
-      <td>${isActive ? threat.altitude : '---'}</td>
+      <td>${contact.id}</td>
+      <td>${allegianceSymbol(contact)}</td>
+      <td>${displayType(contact)}</td>
+      <td>${isActive ? contact.hdgDeg : '---'}</td>
+      <td>${isActive ? ktsToMph(contact.speed) : '---'}</td>
       <td class="status-cell">${statusText}</td>
     `;
 
     if (isActive) {
       tr.addEventListener('click', () => {
-        selectThreat(threat);
+        selectThreat(contact);
       });
     }
     tbody.appendChild(tr);
@@ -91,7 +117,6 @@ export function renderAssets() {
 
     let html = `<div class="base-name">${base.name} <span class="active-tag">[ACTIVE]</span></div>`;
 
-    // Group ready by type
     const readyByType = {};
     for (const i of base.interceptors) {
       if (i.state !== 'READY') continue;
@@ -101,7 +126,6 @@ export function renderAssets() {
       html += `<div class="asset-line">${type} x${count} READY</div>`;
     }
 
-    // Show airborne individually with fuel
     for (const interceptor of base.interceptors) {
       if (interceptor.state === 'READY') continue;
       if (interceptor.state === 'CRASHED') {
@@ -109,8 +133,10 @@ export function renderAssets() {
         continue;
       }
       const targetInfo = interceptor.target ? ` → ${interceptor.target.id}` : '';
+      const idInfo = interceptor.idTarget ? ` ID:${interceptor.idTarget.id}` : '';
       const capInfo = interceptor.state === 'CAP' ? ' CAP' : '';
-      html += `<div class="asset-line">${interceptor.id} ${interceptor.state}${targetInfo}${capInfo} ${fuelBarHTML(interceptor)}</div>`;
+      const stateLabel = interceptor.state === 'ID_MISSION' ? 'ID' : interceptor.state;
+      html += `<div class="asset-line">${interceptor.id} ${stateLabel}${targetInfo}${idInfo}${capInfo} ${fuelBarHTML(interceptor)}</div>`;
     }
 
     block.innerHTML = html;
@@ -127,24 +153,55 @@ export function renderSelectionDetail() {
 
   if (state.selectedThreat) {
     const t = state.selectedThreat;
-    const assignedInterceptors = state.interceptors.filter(i => i.target === t && i.state === 'AIRBORNE');
-    const dx = t.targetCity.x - t.x;
-    const dy = t.targetCity.y - t.y;
-    const distToTarget = Math.sqrt(dx * dx + dy * dy);
-    const eta = Math.round(distToTarget / t.speed);
+    const assignedInterceptors = state.interceptors.filter(i =>
+      (i.target === t && i.state === 'AIRBORNE') ||
+      (i.idTarget === t && i.state === 'ID_MISSION')
+    );
 
     let html = `<div class="detail-header">▶ ${t.id}</div>`;
-    html += `<div class="detail-row"><span class="detail-label">TYPE</span><span class="detail-value hostile">${t.type}</span></div>`;
+
+    // Allegiance
+    const allegColor = t.allegiance === 'HOSTILE' ? 'hostile' : t.allegiance === 'FRIENDLY' ? 'friendly' : '';
+    html += `<div class="detail-row"><span class="detail-label">IFF</span><span class="detail-value ${allegColor}">${t.allegiance}</span></div>`;
+
+    // Classification
+    html += `<div class="detail-row"><span class="detail-label">CLASS</span><span class="detail-value">${displayType(t)}</span></div>`;
+
     html += `<div class="detail-row"><span class="detail-label">HDG</span><span class="detail-value">${t.hdgDeg}°</span></div>`;
-    html += `<div class="detail-row"><span class="detail-label">SPD</span><span class="detail-value">${Math.round(t.speed * 50000)} KTS</span></div>`;
+    html += `<div class="detail-row"><span class="detail-label">SPD</span><span class="detail-value">${ktsToMph(t.speed)} MPH</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">ALT</span><span class="detail-value">${t.altitude.toLocaleString()} FT</span></div>`;
-    html += `<div class="detail-row"><span class="detail-label">TARGET</span><span class="detail-value hostile">${t.targetCity.name}</span></div>`;
-    html += `<div class="detail-row"><span class="detail-label">ETA</span><span class="detail-value hostile">${eta}s</span></div>`;
+
+    // Range + ETA to target (only for hostile with target city)
+    if (t.targetCity && t.allegiance === 'HOSTILE') {
+      const dx = t.targetCity.x - t.x;
+      const dy = t.targetCity.y - t.y;
+      const distToTarget = Math.sqrt(dx * dx + dy * dy);
+      const etaGameSec = distToTarget / (t.speed / 3600);
+      const etaRealSec = Math.round(etaGameSec / GAME_SPEED);
+
+      html += `<div class="detail-row"><span class="detail-label">TARGET</span><span class="detail-value hostile">${t.targetCity.name}</span></div>`;
+      html += `<div class="detail-row"><span class="detail-label">RANGE</span><span class="detail-value">${Math.round(distToTarget)} NM</span></div>`;
+      html += `<div class="detail-row"><span class="detail-label">ETA</span><span class="detail-value hostile">${etaRealSec}s</span></div>`;
+    }
 
     if (assignedInterceptors.length > 0) {
-      html += `<div class="detail-assigned">ASSIGNED: ${assignedInterceptors.map(i => `${i.id} (${i.type})`).join(', ')}</div>`;
-    } else {
-      html += `<div class="detail-assigned" style="color: var(--yellow-warn)">NO INTERCEPTOR ASSIGNED</div>`;
+      html += `<div class="detail-assigned">ASSIGNED: ${assignedInterceptors.map(i => {
+        const mission = i.state === 'ID_MISSION' ? ' (ID)' : '';
+        return `${i.id}${mission}`;
+      }).join(', ')}</div>`;
+    } else if (t.state === 'ACTIVE') {
+      if (t.allegiance === 'UNKNOWN') {
+        html += `<div class="detail-assigned" style="color: var(--amber, #ff8800)">UNIDENTIFIED — SEND FIGHTER TO ID</div>`;
+      } else if (t.allegiance === 'HOSTILE') {
+        html += `<div class="detail-assigned" style="color: var(--yellow-warn)">HOSTILE — WEAPONS FREE</div>`;
+      }
+    }
+
+    // Manual marking controls
+    if (t.state === 'ACTIVE' && t.classification !== 'IDENTIFIED') {
+      html += `<div class="mark-controls">`;
+      html += `<span class="mark-hint">H = MARK HOSTILE | F = MARK FRIENDLY</span>`;
+      html += `</div>`;
     }
 
     el.innerHTML = html;
@@ -154,7 +211,9 @@ export function renderSelectionDetail() {
     const fuelPct = Math.round((i.fuel / i.fuelMax) * 100);
     let html = `<div class="detail-header">▶ ${i.id}</div>`;
     html += `<div class="detail-row"><span class="detail-label">TYPE</span><span class="detail-value friendly">${i.spec.name}</span></div>`;
-    html += `<div class="detail-row"><span class="detail-label">STATE</span><span class="detail-value">${i.state}</span></div>`;
+
+    const stateLabel = i.state === 'ID_MISSION' ? 'ID MISSION' : i.state;
+    html += `<div class="detail-row"><span class="detail-label">STATE</span><span class="detail-value">${stateLabel}</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">FUEL</span><span class="detail-value ${fuelPct <= 25 ? 'hostile' : ''}">${fuelPct}%</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">WEAPONS</span><span class="detail-value">${i.weapons}x ${i.spec.weaponType || 'NONE'}</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">BASE</span><span class="detail-value">${i.base.name}</span></div>`;
@@ -162,9 +221,12 @@ export function renderSelectionDetail() {
     if (i.target) {
       html += `<div class="detail-row"><span class="detail-label">TARGET</span><span class="detail-value hostile">${i.target.id}</span></div>`;
     }
+    if (i.idTarget) {
+      html += `<div class="detail-row"><span class="detail-label">ID TGT</span><span class="detail-value" style="color: #ff8800">${i.idTarget.id}</span></div>`;
+    }
 
     if (i.state !== 'RTB' && i.state !== 'CRASHED') {
-      html += `<div class="detail-assigned" style="color: var(--yellow-warn)">CLICK AGAIN TO RTB | RIGHT-CLICK FOR CAP</div>`;
+      html += `<div class="detail-assigned" style="color: var(--yellow-warn)">R-CLICK: HOSTILE=ENGAGE | UNKNOWN=ID | BASE=RTB</div>`;
     }
 
     el.innerHTML = html;
@@ -176,26 +238,46 @@ export function renderSelectionDetail() {
 
     let html = `<div class="detail-header">▶ ${b.name}</div>`;
 
-    // Show ready by type
-    const readyByType = {};
     for (const i of ready) {
-      readyByType[i.type] = (readyByType[i.type] || 0) + 1;
-    }
-    for (const [type, count] of Object.entries(readyByType)) {
-      html += `<div class="detail-row"><span class="detail-label">READY</span><span class="detail-value friendly">${count}x ${type}</span></div>`;
-    }
-
-    html += `<div class="detail-row"><span class="detail-label">AIRBORNE</span><span class="detail-value">${airborne.length}</span></div>`;
-
-    for (const i of airborne) {
-      const targetInfo = i.target ? ` → ${i.target.id}` : '';
-      const fuelPct = Math.round((i.fuel / i.fuelMax) * 100);
-      html += `<div class="detail-assigned">${i.id} ${i.state}${targetInfo} FUEL:${fuelPct}%</div>`;
+      const isSelected = state.selectedReadyInterceptor === i;
+      const selClass = isSelected ? ' aircraft-selected' : '';
+      const weaponInfo = i.spec.weaponType ? `${i.weapons}x ${i.spec.weaponType}` : 'NO WEAPONS';
+      html += `<div class="aircraft-row${selClass}" data-interceptor-id="${i.id}">`;
+      html += `<span class="detail-label">${i.id}</span>`;
+      html += `<span class="detail-value friendly">${i.type}</span>`;
+      html += `<span class="detail-value">${weaponInfo}</span>`;
+      html += `<span class="detail-value">${fuelBarHTML(i)}</span>`;
+      html += `</div>`;
     }
 
-    if (ready.length > 0) {
-      html += `<div class="detail-assigned" style="color: var(--yellow-warn)">LEFT-CLICK HOSTILE TO SCRAMBLE</div>`;
-      html += `<div class="detail-assigned" style="color: var(--yellow-warn)">RIGHT-CLICK RADAR FOR CAP ORBIT</div>`;
+    if (airborne.length > 0) {
+      html += `<div class="detail-row"><span class="detail-label">AIRBORNE</span><span class="detail-value">${airborne.length}</span></div>`;
+      for (const i of airborne) {
+        const targetInfo = i.target ? ` → ${i.target.id}` : '';
+        const idInfo = i.idTarget ? ` ID:${i.idTarget.id}` : '';
+        const fuelPct = Math.round((i.fuel / i.fuelMax) * 100);
+        const stateLabel = i.state === 'ID_MISSION' ? 'ID' : i.state;
+        html += `<div class="detail-assigned">${i.id} ${stateLabel}${targetInfo}${idInfo} FUEL:${fuelPct}%</div>`;
+      }
+    }
+
+    if (state.selectedReadyInterceptor) {
+      const s = state.selectedReadyInterceptor.spec;
+      const ratingBar = (n) => '█'.repeat(n) + '░'.repeat(3 - n);
+      html += `<div class="aircraft-stats">`;
+      html += `<div class="detail-row"><span class="detail-label">TYPE</span><span class="detail-value friendly">${s.name}</span></div>`;
+      html += `<div class="detail-row"><span class="detail-label">ROLE</span><span class="detail-value">${s.role}</span></div>`;
+      html += `<div class="detail-row"><span class="detail-label">SPD</span><span class="detail-value">${ratingBar(s.speedRating)}</span></div>`;
+      html += `<div class="detail-row"><span class="detail-label">RNG</span><span class="detail-value">${ratingBar(s.rangeRating)}</span></div>`;
+      html += `<div class="detail-row"><span class="detail-label">END</span><span class="detail-value">${ratingBar(s.enduranceRating)}</span></div>`;
+      if (s.weaponType) {
+        html += `<div class="detail-row"><span class="detail-label">ARM</span><span class="detail-value">${state.selectedReadyInterceptor.weapons}x ${s.weaponType}</span></div>`;
+      }
+      html += `<div class="aircraft-desc">${s.desc}</div>`;
+      html += `</div>`;
+      html += `<div class="detail-assigned" style="color: var(--yellow-warn)">R-CLICK: HOSTILE=SCRAMBLE | UNKNOWN=ID | EMPTY=CAP</div>`;
+    } else if (ready.length > 0) {
+      html += `<div class="detail-assigned" style="color: var(--yellow-warn)">SELECT AN AIRCRAFT ABOVE</div>`;
     }
 
     el.innerHTML = html;
@@ -205,16 +287,38 @@ export function renderSelectionDetail() {
 }
 
 // ═══════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════
+
+let hudInitialized = false;
+
+export function initHud() {
+  if (hudInitialized) return;
+  hudInitialized = true;
+
+  const panel = document.querySelector('.left-panel');
+  panel.addEventListener('mousedown', (e) => {
+    const row = e.target.closest('.aircraft-row');
+    if (!row) return;
+    e.stopPropagation();
+    const id = row.dataset.interceptorId;
+    if (!state.selectedBase) return;
+    const interceptor = state.selectedBase.interceptors.find(i => i.id === id && i.state === 'READY');
+    if (interceptor) {
+      state.selectedReadyInterceptor = (state.selectedReadyInterceptor === interceptor) ? null : interceptor;
+    }
+  });
+}
+
+// ═══════════════════════════════════════════
 // SELECTION
 // ═══════════════════════════════════════════
 
-export function selectThreat(threat) {
-  state.selectedThreat = threat;
+export function selectThreat(contact) {
+  state.selectedThreat = contact;
+  state.selectedBase = null;
   state.selectedInterceptor = null;
-
-  if (state.selectedBase) {
-    scrambleToTarget(state.selectedBase, threat);
-  }
+  state.selectedReadyInterceptor = null;
 }
 
 export function selectBase(base) {
@@ -226,18 +330,12 @@ export function selectBase(base) {
   state.selectedBase = base;
   state.selectedThreat = null;
   state.selectedInterceptor = null;
+  state.selectedReadyInterceptor = null;
   addLog(`${base.name} SELECTED — ${readyCount} AIRCRAFT READY`, '');
 }
 
 export function selectInterceptor(interceptor) {
-  // If already selected, issue RTB
   if (state.selectedInterceptor === interceptor) {
-    if (interceptor.state !== 'RTB' && interceptor.state !== 'CRASHED') {
-      interceptor.state = 'RTB';
-      interceptor.target = null;
-      interceptor.capPoint = null;
-      addLog(`${interceptor.id} — RTB ORDERED`, '');
-    }
     state.selectedInterceptor = null;
     return;
   }
@@ -245,40 +343,7 @@ export function selectInterceptor(interceptor) {
   state.selectedInterceptor = interceptor;
   state.selectedBase = null;
   state.selectedThreat = null;
-}
-
-function scrambleToTarget(base, threat) {
-  const ready = base.interceptors.find(i => i.state === 'READY');
-  if (!ready) {
-    addLog(`${base.name} — NO AIRCRAFT AVAILABLE`, 'warn');
-    state.selectedBase = null;
-    return;
-  }
-
-  // AWACS can't engage
-  if (ready.spec.weapons === 0) {
-    // Skip to next ready with weapons
-    const armed = base.interceptors.find(i => i.state === 'READY' && i.spec.weapons > 0);
-    if (!armed) {
-      addLog(`${base.name} — NO ARMED AIRCRAFT AVAILABLE`, 'warn');
-      state.selectedBase = null;
-      return;
-    }
-    armed.state = 'AIRBORNE';
-    armed.target = threat;
-    armed.x = base.x;
-    armed.y = base.y;
-    addLog(`SCRAMBLE ORDER: ${armed.id} (${armed.type}) ${base.name} → ${threat.id}`, 'alert');
-  } else {
-    ready.state = 'AIRBORNE';
-    ready.target = threat;
-    ready.x = base.x;
-    ready.y = base.y;
-    addLog(`SCRAMBLE ORDER: ${ready.id} (${ready.type}) ${base.name} → ${threat.id}`, 'alert');
-  }
-
-  state.selectedBase = null;
-  state.selectedThreat = null;
+  state.selectedReadyInterceptor = null;
 }
 
 // ═══════════════════════════════════════════
@@ -291,8 +356,10 @@ export function renderStatusBar() {
   const m = String(now.getUTCMinutes()).padStart(2, '0');
   document.getElementById('utcClock').textContent = h + m + 'Z';
 
-  const activeThreats = state.threats.filter(t => t.state === 'HOSTILE' && t.detected).length;
+  const activeContacts = state.contacts.filter(t => t.state === 'ACTIVE' && t.detected && !t.isCivilian).length;
+  const unknownContacts = state.contacts.filter(t => t.state === 'ACTIVE' && t.detected && t.allegiance === 'UNKNOWN').length;
   const statusEl = document.getElementById('gameStatus');
+
   if (state.paused) {
     statusEl.textContent = '■ PAUSED ■';
     statusEl.style.color = '#ffcc00';
@@ -302,11 +369,60 @@ export function renderStatusBar() {
   } else if (state.status === 'LOST') {
     statusEl.textContent = '■ DEFENSE FAILURE ■';
     statusEl.style.color = '#ff4444';
-  } else if (activeThreats > 0) {
-    statusEl.textContent = `■ ${activeThreats} ACTIVE THREAT${activeThreats > 1 ? 'S' : ''} ■`;
+  } else if (unknownContacts > 0) {
+    statusEl.textContent = `■ ${unknownContacts} UNKNOWN CONTACT${unknownContacts > 1 ? 'S' : ''} ■`;
+    statusEl.style.color = '#ff8800';
+  } else if (activeContacts > 0) {
+    statusEl.textContent = `■ ${activeContacts} ACTIVE THREAT${activeContacts > 1 ? 'S' : ''} ■`;
     statusEl.style.color = '#ff4444';
   } else {
     statusEl.textContent = '■ STANDING BY ■';
     statusEl.style.color = '#ffcc00';
   }
+
+  const defconEl = document.getElementById('defconLevel');
+  if (defconEl) {
+    defconEl.textContent = `DEFCON ${state.defcon}`;
+    const defconColors = { 5: '#00ff41', 4: '#00cc33', 3: '#ffcc00', 2: '#ff8800', 1: '#ff4444' };
+    defconEl.style.color = defconColors[state.defcon] || '#ffcc00';
+    defconEl.style.textShadow = `0 0 8px ${defconColors[state.defcon]}44`;
+  }
+
+  const waveEl = document.getElementById('waveIndicator');
+  if (waveEl) {
+    if (state.currentWave > 0 && state.currentWave <= WAVES.length) {
+      waveEl.textContent = `WAVE ${state.currentWave}/${WAVES.length}`;
+    } else if (state.wavesComplete) {
+      waveEl.textContent = 'FINAL';
+    } else {
+      waveEl.textContent = '';
+    }
+  }
+}
+
+// ═══════════════════════════════════════════
+// END-GAME SCORING OVERLAY
+// ═══════════════════════════════════════════
+
+export function showScoringOverlay(scoreData) {
+  const overlay = document.getElementById('scoringOverlay');
+  if (!overlay) return;
+
+  const isWin = state.status === 'WON';
+  let html = `<div class="scoring-title">${isWin ? 'SECTOR CLEAR' : 'DEFENSE FAILURE'}</div>`;
+  html += `<div class="scoring-line"></div>`;
+
+  for (const item of scoreData.breakdown) {
+    const sign = item.value >= 0 ? '+' : '';
+    const cls = item.value < 0 ? 'hostile' : '';
+    html += `<div class="scoring-row"><span>${item.label}</span><span class="${cls}">${sign}${item.value}</span></div>`;
+  }
+
+  html += `<div class="scoring-line"></div>`;
+  html += `<div class="scoring-total">TOTAL SCORE: ${scoreData.score}</div>`;
+  html += `<div class="scoring-defcon">FINAL DEFCON: ${state.defcon}</div>`;
+  html += `<div class="scoring-hint">PRESS R TO RESTART</div>`;
+
+  overlay.innerHTML = html;
+  overlay.style.display = 'block';
 }

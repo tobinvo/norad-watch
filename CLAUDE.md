@@ -3,7 +3,7 @@
 A browser-based cold-war NORAD air defense simulation. The player manages radar contacts, scrambles interceptors, and defends North American cities against escalating waves of airborne threats. Prioritizes the "control tower" feel — managing information and making decisions, not clicking frantically.
 
 ## Project Status
-**Phase: POC complete** — Visual mockup (`poc.html`) demonstrates the aesthetic: radar sweep, North America map, CRT scanline overlay, contact list, asset status, event log. No game logic yet. Next: Phase 1 (Foundation — playable prototype with one base, one aircraft type, one threat type).
+**Phase: 6 complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post: Northeast ADIZ (~500nm across), nm-based coordinate system, 3 radar sites with detection coverage, sector/prosecution boundaries, coastline map, GAME_SPEED=30 time scaling, proper knots→nm/s movement.
 
 ## Tech Stack
 - **Vanilla JavaScript** + **HTML5 Canvas** — no frameworks, no build step
@@ -46,69 +46,119 @@ norad-watch/
 
 ## Build Plan
 
-### Phase 1: Foundation (playable prototype)
-**Goal:** Radar sweep + map + one base + one threat type + scramble/intercept
+**Inspiration:** Command: Modern Operations (CMANO). The player makes decisions under uncertainty, not arcade actions. "Control room tension" — long quiet stretches punctuated by intense decision windows.
 
-1. HTML scaffold with `<canvas>` + CSS Grid panels (port from poc.html)
-2. `requestAnimationFrame` game loop with delta-time tracking
-3. North America vector map (reuse POC coordinates)
-4. Radar sweep — contacts only visible on sweep pass, fade after
-5. Entity system: `Base` (position, aircraft roster), `Threat` (position, heading, speed, altitude, type, ID), `Interceptor` (position, heading, speed, fuel, loadout, target, state)
-6. Single bomber threat type spawning from map edges toward random city
-7. Scramble mechanic — click base → select interceptor → click threat to assign
-8. Intercept resolution — geometric distance check at weapons range
-9. Basic win/lose — threats reaching cities vs all threats neutralized
+### Completed (Phases 1-5)
+- HTML scaffold, canvas, CSS Grid panels, CRT aesthetic
+- Game loop with delta-time, radar sweep with blip fade
+- Entity system: Base, Interceptor, Threat, City
+- 4 aircraft types: F-15A, F-16C, F-106A, E-3A AWACS
+- Fuel system with bingo warning, crash on empty, CAP orbits, RTB
+- Full UI panels: contact list, asset status, selection detail, event log
+- Left-click select / right-click action input scheme
+- 4 threat types: Bomber, Fighter (evasion), Cruise Missile (reduced detection), ICBM (boost phase)
+- 5-wave escalation system, DEFCON 5→1, end-game scoring overlay, restart
+- Aircraft selection on scramble (per-aircraft pick from base detail panel)
+- **Phase 5:** Northeast ADIZ sector map (500nm across) with NE US coastline
+- **Phase 5:** Nautical mile coordinate system (replaces broken 0-1 system)
+- **Phase 5:** 3 radar sites (North Truro, Montauk, Gibbsboro) with detection coverage circles
+- **Phase 5:** 3 bases (Otis ANGB, Griffiss AFB, Langley AFB) with sector-appropriate rosters
+- **Phase 5:** 4 cities to defend (Boston, New York, Philadelphia, Washington DC)
+- **Phase 5:** Sector boundary + prosecution zone (50nm buffer) with threat exit cleanup
+- **Phase 5:** Threats spawn from weighted edges (east, north, northeast)
+- **Phase 5:** GAME_SPEED=30 time scaling (knots→nm/s movement at playable pace)
+- **Phase 5:** Radar site-based detection (threats only visible in radar range)
+- **Phase 5:** Range/ETA display in contact detail panel
+- **Phase 5:** 50nm grid, scale bar, range rings in nm
+- **Phase 6:** Contact classification pipeline (UNKNOWN → CLASSIFIED → IDENTIFIED)
+- **Phase 6:** Civilian air traffic (3 at start + periodic spawns, 5 air corridors)
+- **Phase 6:** IFF transponder — civilians auto-classify FRIENDLY on detection
+- **Phase 6:** Auto-classification after 3 radar sweeps (FAST MOVER, HEAVY, LOW RIDER, BALLISTIC)
+- **Phase 6:** Visual ID missions — interceptor state ID_MISSION, flies within 5nm, 10s to ID
+- **Phase 6:** Manual marking — H key = HOSTILE, F key = FRIENDLY (with contact selected)
+- **Phase 6:** Engagement rules — can only engage HOSTILE contacts, FRIENDLY blocked
+- **Phase 6:** UNKNOWN contacts → right-click sends ID mission (not engagement)
+- **Phase 6:** Civilian shootdown = catastrophic penalty (-500 per kill, instant DEFCON 1)
+- **Phase 6:** Allegiance-colored blips (amber=unknown, red=hostile, green=friendly)
+- **Phase 6:** Classification-based blip shapes (dot→category shape→specific type)
+- **Phase 6:** Fuel rebalanced (F-15A 83s, F-16C 119s, F-106A 51s, E-3A 238s real endurance)
 
-### Phase 2: UI Panels
-**Goal:** Information management feel
+### Phase 7: Rules of Engagement
+**Goal:** Consequences for trigger-happiness and hesitation
 
-1. Left panel: CONTACT LIST — all radar tracks (ID, type, heading, speed, status)
-2. Right panel: ASSET STATUS — bases, aircraft counts, airborne fuel bars
-3. Bottom bar: EVENT LOG — scrolling military-time entries, auto-scroll
-4. Selection system — click contact on radar or in list to highlight + show options
-5. HUD overlays — range envelope circles, projected path lines
+1. **Weapons Control States (WCS):**
+   - **FREE** — Fire at any target not positively identified as friendly
+   - **TIGHT** — Fire only at targets positively identified as hostile
+   - **HOLD** — Fire only in self-defense
+2. **Global + per-unit WCS** — Set a default for the sector, override for specific units
+3. **Civilian shootdown = scenario failure** — Engaging an unidentified contact that turns out to be civilian is catastrophic. Score penalty, possible instant loss.
+4. **The dilemma** — Stay TIGHT and risk a bomber getting through, or go FREE and risk downing a 747?
 
-### Phase 3: Aircraft Types & Fuel
-**Goal:** Meaningful resource management
+### Phase 8: Time Compression & Pacing
+**Goal:** Real watch-station rhythm — long quiet, sudden crisis
 
-1. **F-15 Eagle** — fast (900kts), long range (1800nm), 4 AMRAAMs
-2. **F-16 Falcon** — medium (750kts), medium range (1200nm), 2 AMRAAMs
-3. **F-106 Delta Dart** — fast (850kts), short range (800nm), 1 Genie OR 4 Falcons
-4. **E-3 AWACS** — slow (350kts), long endurance, no weapons, extends radar range
-5. Fuel system — burn rate by speed, bingo warning, crash on empty
-6. CAP orbits — assign patrol point, orbit until reordered or bingo
-7. RTB command — return to base anytime
+1. **Variable time acceleration** — 1x, 2x, 4x, 8x, 16x speed controls
+2. **Auto-pause on events** — New contact detected, engagement begins, aircraft bingo, city threatened. Player is forced into real-time decision windows.
+3. **Scenario clock** — Missions measured in hours of game time (e.g., "8-hour watch"). Real playtime 15-25 minutes.
+4. **Quiet stretches** — Long periods of just civilian traffic transiting. Builds tension through anticipation.
 
-### Phase 4: Threat Variety & Escalation
-**Goal:** Tactical decision variety
+### Phase 9: Realistic Air Operations
+**Goal:** Finite resources, hard choices, vulnerability windows
 
-1. **Bomber** — slow (500kts), high altitude, long straight track
-2. **Fighter escort** — medium (800kts), may evade when interceptor closes
-3. **Cruise missile** — fast (600kts), low altitude, delayed radar detection
-4. **ICBM** — very fast (4000kts+), only interceptable in boost phase (~60s window)
-5. Wave system — escalating waves with increasing threat mix
-6. DEFCON system — 5→1 as threats increase / assets hit, affects spawn rates
+1. **Aircraft turnaround time** — When jets land: refuel/rearm takes real game time. No instant reloads. Different aircraft have different turnaround costs — F-15A is heavy and complex (longer turnaround), F-16C is quick-turn designed, F-106A needs nuclear weapon handling (longest), E-3A needs extensive servicing. Turnaround time visible in the base detail panel with countdown. Creates gaps in coverage and makes the decision of WHEN to scramble (and what) matter — sending your F-15s early means they might be turning around when the real threat arrives.
+2. **Sortie limits** — Aircraft can fly ~4 sorties before mandatory extended maintenance (hours). Per-type variation: F-16C is more maintainable (5 sorties), F-106A is temperamental (3 sorties).
+3. **Fuel range envelopes** — Visual rings showing how far each aircraft can fly and still RTB. Commitment distance is visible.
+4. **Mission-based delegation** — Define patrol zones, assign aircraft to CAP missions. AI flies the pattern. Player intervenes on key decisions only (engage? redirect?). Prevents RTS micro.
+5. **Tanker support** — KC-135 tanker orbits extend fighter endurance. Losing the tanker shortens your reach.
+6. **Missiles as map entities** — Firing a weapon spawns a visible missile entity that flies to the target with real flight time and speed. No more instant kills at weapons range. Player sees the missile track on radar, watches it close. Missile types (AIM-120 AMRAAM, AIM-7 Sparrow, AIR-2 Genie) have different speeds, ranges, and guidance.
+7. **Probability of kill (Pk)** — Missiles aren't guaranteed hits. Pk affected by target type, aspect angle, ECM, and range at launch. A miss means deciding whether to re-engage (spend another missile) or let it go.
+8. **Damage model** — Not everything is a one-hit kill. A missile hit may destroy, cripple (reduced speed, lost weapons), or miss. Damaged bombers limp on at reduced speed toward target. Damaged interceptors may lose radar or weapons but still fly. Creates harder decisions: re-engage the wounded bomber or trust it won't make it?
+9. **Waypoints / flight plans** — Plot multi-leg routes instead of just "go to target." Set approach corridors, define patrol boxes with specific legs, create holding patterns. Enables tactical positioning — approach from the south, set up a barrier CAP across a threat axis.
 
-### Phase 5: Realism & Polish
-**Goal:** Depth and replayability
+### Phase 10: Sensor Depth
+**Goal:** Active/passive tradeoffs, radar physics
 
-1. IFF / ROE — some unknowns are friendly, engaging = score penalty, must wait for visual-ID range
-2. True radar sweep reveal — contacts only update position on sweep pass
-3. Weather sectors — overlay zones degrading radar detection (optional toggle)
-4. Protected assets — 5-8 cities + bases with HP, threat reaching city = damage
-5. Scoring — threats neutralized, assets preserved %, fuel efficiency, friendly fire penalty
-6. Scenario timer — 10-15 min fixed scenarios, end screen with breakdown
-7. Sound — Web Audio API beeps/tones for sweep, alerts, intercepts (no external files)
+1. **Active radar dilemma** — Ground radar ON = see further, but enemies can detect your emissions and target with anti-radiation missiles. EMCON (emissions control) = shorter detection, but invisible.
+2. **Radar horizon** — Detection range depends on antenna height + target altitude. Low-flying cruise missiles invisible until ~20nm. High-altitude bombers detectable at 200nm. Earth's curvature matters.
+3. **Passive ESM** — Detect enemy radar/jammer emissions without revealing yourself. Gives bearing but poor range accuracy.
+4. **AWACS as critical asset** — Extends detection envelope for entire sector. Losing it creates a sudden, massive gap. Enemies may target it specifically.
+5. **Terrain masking** — Mountains/terrain block radar in certain directions (if sector has terrain features).
+6. **Altitude as a real mechanic** — Altitude affects radar detection (low = hidden longer behind radar horizon), missile engagement envelopes (minimum/maximum launch altitude, look-down/shoot-down capability), fuel burn rate (higher = more efficient cruise), and climb/descent takes real time. Fighters must climb to engage high-altitude targets or dive to catch terrain-huggers.
+7. **Aircraft radars** — Each fighter has its own radar with detection range, scan cone, and search/track modes. Fighter radar range << ground radar but provides autonomous detection when out of data link range. AWACS radar is wide-area search; fighter radar is narrow focused cone.
+8. **Data links** — Units share sensor data through AWACS as a network hub. With data link, all friendly units see what AWACS sees. Lose the AWACS (or fly out of link range), and each fighter only sees what its own radar covers. Creates urgent incentive to protect AWACS and stay within link range. Fog of war degrades gracefully as network nodes go down.
+
+### Phase 11: Threat Sophistication
+**Goal:** Adversaries that think, not just fly in straight lines
+
+1. **ECM/Jamming** — Threat aircraft carry jammers that degrade your radar. Contacts appear fuzzy, uncertain position, possible false tracks.
+2. **Decoys** — Threats launch decoys that appear as additional contacts on radar. Must be sorted from real threats.
+3. **Formation tactics** — Fighters fly escort for bombers. Must defeat escorts to reach bombers.
+4. **Terrain-hugging routes** — Threats exploit terrain masking and low altitude to delay detection.
+5. **SEAD threats** — Anti-radiation missiles that target your radar stations if they're emitting.
+
+### Phase 12: Polish & Atmosphere
+**Goal:** Complete experience
+
+1. **Sound design** — Web Audio API: radar sweep tone, detection ping, alert klaxon, radio chatter fragments, engagement sounds. No external files.
+2. **Weather sectors** — Overlay zones degrading radar detection
+3. **Scenario variety** — Multiple sectors (Alaska, Northeast, Pacific), each with different geography, threat axes, and asset mix
+4. **Difficulty scaling** — Cadet (auto-ID, no civilians) → Veteran (full IFF pipeline, civilian traffic, SEAD threats)
+5. **Post-scenario debrief** — Timeline replay showing all contacts, your decisions, outcomes. "What you missed" reveal.
+6. **Communication delays** — Detection → authorization → scramble has a time cost. Not instant.
+7. **Crew proficiency** — Affects reaction times, ID speed, engagement accuracy
 
 ### Phase Summary
-| Phase | Delivers | Playable? |
-|-------|----------|-----------|
-| POC   | Visual mockup — aesthetic only | No |
-| 1     | Radar + map + 1 base + 1 threat + scramble | Yes (minimal) |
-| 2     | Full UI panels + selection + event log | Yes (feels like a game) |
-| 3     | 4 aircraft types + fuel + CAP | Yes (real decisions) |
-| 4     | 4 threat types + waves + DEFCON | Yes (escalating tension) |
-| 5     | IFF/ROE + weather + scoring + polish | Yes (complete) |
+| Phase | Delivers | Feel |
+|-------|----------|------|
+| 1-4   | Radar + map + aircraft + threats + waves + DEFCON | Arcade prototype (done) |
+| 5     | Sector focus, realistic scale, radar coverage | "I'm responsible for THIS area" |
+| 6     | Unknown contacts, civilian traffic, IFF pipeline | "Is that hostile?" |
+| 7     | Weapons Control States, ROE consequences | "Do I shoot?" |
+| 8     | Time compression, auto-pause, scenario clock | "Watch station rhythm" |
+| 9     | Turnaround, sortie limits, missiles-as-entities, Pk, damage model, waypoints | "I'm running out of planes" |
+| 10    | Active/passive sensors, radar horizon, altitude, aircraft radars, data links | "I can't see everything" |
+| 11    | ECM, decoys, SEAD, formation tactics | "They're fighting back smart" |
+| 12    | Sound, weather, scenarios, difficulty, debrief | Complete experience |
 
 ## Core Mechanics
 
@@ -117,6 +167,15 @@ norad-watch/
 - Contacts only revealed when sweep passes — position updates on sweep, not continuously
 - Blips fade after sweep moves past (~3.5s fade)
 - AWACS extends detection radius when airborne
+- Radar horizon limits detection of low-altitude targets
+- Active radar tradeoff: emit and be seen, or go passive and be blind
+
+### Contacts & IFF
+- Contacts appear as UNKNOWN — must be classified and identified
+- Classification: passive (radar signature analysis) or active (visual ID by fighter)
+- Civilian traffic provides constant noise — not all contacts are threats
+- Weapons Control States (FREE/TIGHT/HOLD) govern engagement authorization
+- Wrong ID = catastrophic penalty
 
 ### Intercept Geometry
 - Compute intercept point given threat heading/speed and interceptor speed
@@ -124,11 +183,13 @@ norad-watch/
 - Engagement when interceptor reaches weapons range of target
 - Weapons range varies by aircraft type and loadout
 
-### Fuel
+### Fuel & Sortie Management
 - Burn rate proportional to speed
 - Bingo fuel warning triggers when insufficient fuel to RTB
 - Aircraft that run dry crash (lost permanently)
-- Displayed as percentage in asset panel
+- Turnaround time after landing — vulnerability windows
+- Fuel range envelopes visualized on map
+- Sortie limits create long-term resource pressure
 
 ### Scoring
 - Threats neutralized: +points per type
@@ -139,16 +200,21 @@ norad-watch/
 
 ### Aircraft States
 - READY — on ground at base, available for scramble
+- TURNAROUND — on ground, refueling/rearming (unavailable)
 - AIRBORNE — in flight, heading to target or CAP point
 - ENGAGED — in weapons range, engaging threat
 - RTB — returning to base
 - CAP — orbiting patrol point
+- ID_MISSION — closing on unknown contact for visual identification
 
 ### Threat States
 - UNKNOWN — unidentified, may be hostile or friendly
-- HOSTILE — confirmed enemy, weapons free
+- CLASSIFIED — rough category known (fast mover, commercial, etc.)
+- IDENTIFIED — specific type confirmed by visual ID
+- HOSTILE — confirmed enemy
+- FRIENDLY — confirmed civilian/allied
 - NEUTRALIZED — destroyed by interceptor
-- IMPACT — reached target city
+- IMPACT — reached target
 
 ## Development Standards
 Inherited from `C:\Users\tvano\Start\CLAUDE.md`. Key points for this project:
@@ -159,6 +225,6 @@ Inherited from `C:\Users\tvano\Start\CLAUDE.md`. Key points for this project:
 - **Imports:** ES module `import/export`
 - **Engine logic** in `src/` — pure functions where possible, separate from rendering
 - **No backend** — everything client-side
-- **Coordinates:** normalized 0-1 space mapped to canvas size, handles resize
+- **Coordinates:** nautical miles from sector center (0,0). sector.js handles nm↔canvas conversion
 - **Entity IDs:** sequential with NATO-style labels ("BOGIE-7", "EAGLE-3")
 - **Testing:** open in browser, visual verification. No test framework planned
