@@ -14,9 +14,13 @@ export const state = {
   cities: [],
   radarSites: [],         // { name, x, y, rangeNm }
 
+  // Missiles in flight
+  missiles: [],
+
   // Counters for ID generation
   nextContactNum: 1,
   nextInterceptorNum: 1,
+  nextMissileNum: 1,
 
   // Spawning / Waves
   lastSpawnTime: 0,
@@ -64,4 +68,6 @@ export const state = {
   threatsNeutralized: 0,
   citiesHit: 0,
   civiliansKilled: 0,
+  missilesExpended: 0,
+  missilesMissed: 0,
 };

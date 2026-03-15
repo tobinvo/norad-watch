@@ -135,6 +135,8 @@ export const AIRCRAFT_TYPES = {
     speedRating: 3,
     rangeRating: 2,
     enduranceRating: 2,
+    turnaroundTime: 900,    // game-seconds (~30s real at 1x)
+    maxSorties: 4,
   },
   'F-16C': {
     name: 'F-16C Falcon',
@@ -150,6 +152,8 @@ export const AIRCRAFT_TYPES = {
     speedRating: 2,
     rangeRating: 2,
     enduranceRating: 3,
+    turnaroundTime: 600,    // game-seconds (~20s real at 1x)
+    maxSorties: 5,
   },
   'F-106A': {
     name: 'F-106A Delta Dart',
@@ -165,6 +169,8 @@ export const AIRCRAFT_TYPES = {
     speedRating: 3,
     rangeRating: 1,
     enduranceRating: 1,
+    turnaroundTime: 1200,   // game-seconds (~40s real at 1x)
+    maxSorties: 3,
   },
   'E-3A': {
     name: 'E-3A Sentry AWACS',
@@ -180,5 +186,46 @@ export const AIRCRAFT_TYPES = {
     speedRating: 1,
     rangeRating: 0,
     enduranceRating: 3,
+    turnaroundTime: 1800,   // game-seconds (~60s real at 1x)
+    maxSorties: 2,
   },
 };
+
+// ═══════════════════════════════════════════
+// MISSILE TYPES
+// ═══════════════════════════════════════════
+
+export const MISSILE_TYPES = {
+  AMRAAM: {
+    name: 'AIM-120 AMRAAM',
+    speed: 2700,          // knots (~Mach 4)
+    guidance: 'ACTIVE',   // tracks target each frame
+    basePk: 0.70,
+    callsign: 'FOX THREE',
+  },
+  GENIE: {
+    name: 'AIR-2 Genie',
+    speed: 1800,          // knots (~Mach 3)
+    guidance: 'UNGUIDED', // fixed bearing from launch
+    basePk: 0.95,         // nuclear warhead
+    callsign: 'FOX ONE — GENIE',
+  },
+};
+
+// Pk modifiers by target type
+export const PK_TARGET_MODIFIERS = {
+  BOMBER: 1.0,
+  FIGHTER: 0.65,
+  CRUISE_MISSILE: 0.50,
+  ICBM: 0.30,
+};
+
+// Destroy vs cripple chance on hit (chance to destroy outright)
+export const DAMAGE_DESTROY_CHANCE = {
+  BOMBER: 0.55,
+  FIGHTER: 0.75,
+  CRUISE_MISSILE: 1.0,   // always destroy
+  ICBM: 1.0,             // always destroy
+};
+
+export const MISSILE_ARRIVAL_DIST = 1.5; // nm — missile "arrives" at target

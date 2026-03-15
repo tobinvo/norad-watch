@@ -1,9 +1,9 @@
 import { GAME_SPEED, AUTO_PAUSE_COOLDOWN, TIME_STEPS } from './constants.js';
 import { state } from './state.js';
 import { SECTOR, toCanvas, updateCanvasSize } from './sector.js';
-import { createBase, createCity, moveContact, moveInterceptor } from './entities.js';
+import { createBase, createCity, moveContact, moveInterceptor, moveMissile } from './entities.js';
 import { drawMap } from './map.js';
-import { drawRangeRings, drawRadarSites, drawSweep, drawContacts, drawInterceptors, drawBases, drawCities, drawEffects, drawAwacsRange, initRadarSweeps } from './radar.js';
+import { drawRangeRings, drawRadarSites, drawSweep, drawContacts, drawInterceptors, drawMissiles, drawBases, drawCities, drawEffects, drawAwacsRange, initRadarSweeps } from './radar.js';
 import { trySpawnThreat } from './spawner.js';
 import { initCivilianTraffic, trySpawnCivilian } from './civilians.js';
 import { resolveEngagements, checkWinLose } from './intercept.js';
@@ -70,6 +70,8 @@ function resetGame() {
   state.radarSites = [];
   state.nextContactNum = 1;
   state.nextInterceptorNum = 1;
+  state.nextMissileNum = 1;
+  state.missiles = [];
   state.lastSpawnTime = 0;
   state.totalSpawned = 0;
   state.currentWave = 0;
@@ -96,6 +98,8 @@ function resetGame() {
   state.threatsNeutralized = 0;
   state.citiesHit = 0;
   state.civiliansKilled = 0;
+  state.missilesExpended = 0;
+  state.missilesMissed = 0;
   scoreShown = false;
   sweepTime = 0;
 
@@ -158,6 +162,21 @@ function update(gameDt, timestamp) {
     }
   }
 
+  // Move missiles and resolve arrivals
+  const prevMisses = state.missilesMissed;
+  for (const missile of state.missiles) {
+    moveMissile(missile, dSec);
+  }
+  // Cleanup resolved missiles after 3 game-seconds (keep briefly for rendering)
+  state.missiles = state.missiles.filter(m => {
+    if (m.state === 'FLIGHT') return true;
+    return state.gameTime - m.resolveTime < 3000;
+  });
+  // Auto-pause on missile miss
+  if (state.missilesMissed > prevMisses) {
+    autoPause('MISSILE MISS', timestamp);
+  }
+
   const prevCitiesHit = state.citiesHit;
   resolveEngagements();
   updateDefcon();
@@ -206,6 +225,7 @@ function render(timestamp) {
   drawSweep(ctx, state.gameTime, sweepTime);
   drawContacts(ctx, sweepTime);
   drawInterceptors(ctx, sweepTime);
+  drawMissiles(ctx);
   drawEffects(ctx, state.gameTime);
 
   renderContacts();

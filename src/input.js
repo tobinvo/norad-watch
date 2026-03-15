@@ -44,7 +44,7 @@ function handleCanvasClick(e) {
 
   // Check airborne interceptors
   for (const interceptor of state.interceptors) {
-    if (interceptor.state === 'READY' || interceptor.state === 'CRASHED') continue;
+    if (interceptor.state === 'READY' || interceptor.state === 'CRASHED' || interceptor.state === 'TURNAROUND' || interceptor.state === 'MAINTENANCE') continue;
     const [ix, iy] = toCanvas(interceptor.x, interceptor.y);
     if (hitTest(mx, my, ix, iy, INTERCEPTOR_HIT_RADIUS)) {
       selectInterceptor(interceptor);
@@ -169,7 +169,7 @@ function handleRightClick(e) {
   // ── Interceptor selected: reassign, RTB, ID, or CAP ──
   if (state.selectedInterceptor) {
     const interceptor = state.selectedInterceptor;
-    if (interceptor.state === 'CRASHED' || interceptor.state === 'READY') return;
+    if (interceptor.state === 'CRASHED' || interceptor.state === 'READY' || interceptor.state === 'TURNAROUND' || interceptor.state === 'MAINTENANCE') return;
 
     if (contactUnder && contactUnder.state === 'ACTIVE') {
       const wcs = getEffectiveWCS(interceptor);
@@ -227,7 +227,7 @@ function handleRightClick(e) {
 function handleKeyCommand(e) {
   // WCS cycling — W key
   if (e.code === 'KeyW') {
-    if (state.selectedInterceptor && state.selectedInterceptor.state !== 'CRASHED' && state.selectedInterceptor.state !== 'READY') {
+    if (state.selectedInterceptor && !['CRASHED', 'READY', 'TURNAROUND', 'MAINTENANCE'].includes(state.selectedInterceptor.state)) {
       // Cycle per-unit WCS override
       const i = state.selectedInterceptor;
       const current = i.wcs || null;

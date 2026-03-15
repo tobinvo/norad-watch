@@ -1,4 +1,5 @@
-import { AIRCRAFT_TYPES, THREAT_TYPES, ARRIVAL_THRESHOLD, ID_RANGE, ID_TIME, CIVILIAN_TYPES } from './constants.js';
+import { AIRCRAFT_TYPES, THREAT_TYPES, ARRIVAL_THRESHOLD, ID_RANGE, ID_TIME, CIVILIAN_TYPES,
+  MISSILE_TYPES, PK_TARGET_MODIFIERS, DAMAGE_DESTROY_CHANCE, MISSILE_ARRIVAL_DIST } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
 
@@ -52,6 +53,8 @@ export function createInterceptor(base, typeName) {
     fuelMax: spec.fuelCapacity,
     weapons: spec.weapons,
     bingo: false,
+    sorties: 0,          // completed sorties (max = spec.maxSorties)
+    turnaroundUntil: 0,  // gameTime (ms) when turnaround completes
   };
 }
 
@@ -93,6 +96,7 @@ export function createThreat(x, y, targetCity, typeName) {
     classification: 'UNKNOWN',
     classCategory: null,       // rough category after classification
     sweepsSeen: 0,
+    damaged: false,             // crippled by missile hit (speed halved)
   };
 
   // Fighter evasion tracking
@@ -198,7 +202,18 @@ export function moveContact(contact, dSec) {
 }
 
 export function moveInterceptor(interceptor, dSec) {
-  if (interceptor.state === 'READY') return;
+  if (interceptor.state === 'READY' || interceptor.state === 'MAINTENANCE') return;
+
+  // Turnaround — check if complete
+  if (interceptor.state === 'TURNAROUND') {
+    if (state.gameTime >= interceptor.turnaroundUntil) {
+      interceptor.state = 'READY';
+      interceptor.fuel = interceptor.fuelMax;
+      interceptor.weapons = interceptor.spec.weapons;
+      addLog(`${interceptor.id} TURNAROUND COMPLETE — READY`, '');
+    }
+    return;
+  }
 
   // Burn fuel (per game-second)
   interceptor.fuel -= interceptor.spec.fuelBurnRate * dSec;
@@ -264,13 +279,23 @@ export function moveInterceptor(interceptor, dSec) {
 
   if (dist < ARRIVAL_THRESHOLD) {
     if (interceptor.state === 'RTB') {
-      interceptor.state = 'READY';
       interceptor.x = interceptor.base.x;
       interceptor.y = interceptor.base.y;
-      interceptor.fuel = interceptor.fuelMax;
-      interceptor.weapons = interceptor.spec.weapons;
       interceptor.bingo = false;
       interceptor.idProgress = 0;
+      interceptor.target = null;
+      interceptor.idTarget = null;
+      interceptor.capPoint = null;
+      interceptor.sorties++;
+
+      if (interceptor.sorties >= interceptor.spec.maxSorties) {
+        interceptor.state = 'MAINTENANCE';
+        addLog(`${interceptor.id} SORTIE LIMIT — EXTENDED MAINTENANCE`, 'warn');
+      } else {
+        interceptor.state = 'TURNAROUND';
+        interceptor.turnaroundUntil = state.gameTime + interceptor.spec.turnaroundTime * 1000;
+        addLog(`${interceptor.id} LANDED — TURNAROUND ${Math.round(interceptor.spec.turnaroundTime / 60)}min`, '');
+      }
     }
     return;
   }
@@ -317,6 +342,157 @@ function completeIdentification(interceptor) {
   // Friendly or no weapons — orbit here
   interceptor.state = 'CAP';
   interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
+}
+
+// ═══════════════════════════════════════════
+// MISSILES
+// ═══════════════════════════════════════════
+
+function distXY(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+export function createMissile(interceptor, contact) {
+  const num = state.nextMissileNum++;
+  const weaponType = interceptor.spec.weaponType;
+  const mSpec = MISSILE_TYPES[weaponType];
+  const heading = Math.atan2(contact.y - interceptor.y, contact.x - interceptor.x);
+
+  return {
+    id: `MSL-${num}`,
+    type: weaponType,
+    x: interceptor.x,
+    y: interceptor.y,
+    speed: mSpec.speed,
+    heading,
+    guidance: mSpec.guidance,
+    target: contact,
+    shooter: interceptor,
+    launchRange: distXY(interceptor, contact),
+    maxRange: interceptor.spec.weaponsRange,
+    launchTime: state.gameTime,
+    state: 'FLIGHT',        // FLIGHT | HIT | MISS | EXPIRED
+    resolveTime: 0,
+  };
+}
+
+export function moveMissile(missile, dSec) {
+  if (missile.state !== 'FLIGHT') return;
+
+  const target = missile.target;
+
+  // Target already gone — expire
+  if (!target || target.state !== 'ACTIVE') {
+    missile.state = 'EXPIRED';
+    missile.resolveTime = state.gameTime;
+    return;
+  }
+
+  // ACTIVE guidance — re-home toward target's current position
+  if (missile.guidance === 'ACTIVE') {
+    missile.heading = Math.atan2(target.y - missile.y, target.x - missile.x);
+  }
+  // UNGUIDED — heading stays fixed from launch
+
+  const nmPerSec = missile.speed / 3600;
+  const moveAmt = nmPerSec * dSec;
+  missile.x += Math.cos(missile.heading) * moveAmt;
+  missile.y += Math.sin(missile.heading) * moveAmt;
+
+  // Check arrival
+  const d = distXY(missile, target);
+  if (d <= MISSILE_ARRIVAL_DIST) {
+    resolveMissileArrival(missile);
+    return;
+  }
+
+  // Timeout — missile flew beyond 1.5x max range from launch point without arriving
+  const distFromLaunch = Math.sqrt(
+    (missile.x - missile.shooter.x) ** 2 + (missile.y - missile.shooter.y) ** 2
+  );
+  // Use a generous timeout based on flight time at missile speed
+  const maxFlightSec = (missile.maxRange * 2) / nmPerSec;
+  const flightElapsed = (state.gameTime - missile.launchTime) / 1000;
+  if (flightElapsed > maxFlightSec) {
+    missile.state = 'MISS';
+    missile.resolveTime = state.gameTime;
+    state.missilesMissed++;
+    addLog(`${missile.id} ${missile.type} LOST TRACK — MISS`, 'warn');
+  }
+}
+
+function resolveMissileArrival(missile) {
+  const contact = missile.target;
+  const mSpec = MISSILE_TYPES[missile.type];
+
+  // Calculate Pk
+  let pk = mSpec.basePk;
+
+  // Target type modifier
+  const targetMod = PK_TARGET_MODIFIERS[contact.type] || 1.0;
+  pk *= targetMod;
+
+  // Range modifier — based on launch range vs max range
+  const rangePct = missile.launchRange / missile.maxRange;
+  if (rangePct > 0.80) {
+    pk *= 0.75;   // long shot
+  } else if (rangePct < 0.40) {
+    pk *= 1.15;   // close range bonus
+  }
+
+  // Already damaged — guaranteed kill
+  if (contact.damaged) {
+    pk = 1.0;
+  }
+
+  // Clamp
+  pk = Math.max(0.05, Math.min(1.0, pk));
+
+  // Roll for hit
+  if (Math.random() < pk) {
+    // HIT — determine destroy or cripple
+    const destroyChance = DAMAGE_DESTROY_CHANCE[contact.type] || 0.55;
+
+    if (contact.damaged || Math.random() < destroyChance) {
+      // DESTROY
+      missile.state = 'HIT';
+      missile.resolveTime = state.gameTime;
+      contact.state = 'NEUTRALIZED';
+
+      if (contact.isCivilian) {
+        state.civiliansKilled++;
+        contact.classification = 'IDENTIFIED';
+        contact.allegiance = 'FRIENDLY';
+        contact.classCategory = contact.typeLabel;
+        addLog(`■ CIVILIAN AIRCRAFT DESTROYED — ${contact.id} WAS ${contact.typeLabel} ■`, 'alert');
+        addLog(`■ CATASTROPHIC ERROR — CIVILIAN SHOOTDOWN ■`, 'alert');
+        state.effects.push({ x: contact.x, y: contact.y, type: 'impact', startTime: state.gameTime });
+      } else {
+        state.threatsNeutralized++;
+        const threatSpec = THREAT_TYPES[contact.type];
+        const dmgLabel = contact.damaged ? ' (DAMAGED)' : '';
+        addLog(`${missile.id} HIT — ${contact.id} SPLASH${dmgLabel} (${threatSpec.label})`, 'alert');
+        state.effects.push({ x: contact.x, y: contact.y, type: 'kill', startTime: state.gameTime });
+      }
+    } else {
+      // CRIPPLE
+      missile.state = 'HIT';
+      missile.resolveTime = state.gameTime;
+      contact.damaged = true;
+      contact.speed = Math.round(contact.speed * 0.5);
+      const threatSpec = THREAT_TYPES[contact.type];
+      addLog(`${missile.id} HIT — ${contact.id} DAMAGED (${threatSpec.label}) — SPEED REDUCED`, 'warn');
+      state.effects.push({ x: contact.x, y: contact.y, type: 'damage', startTime: state.gameTime });
+    }
+  } else {
+    // MISS
+    missile.state = 'MISS';
+    missile.resolveTime = state.gameTime;
+    state.missilesMissed++;
+    addLog(`${missile.id} ${missile.type} MISS — ${contact.id} EVADED`, 'warn');
+  }
 }
 
 // ═══════════════════════════════════════════

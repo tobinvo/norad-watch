@@ -465,7 +465,7 @@ function drawThreatShape(ctx, bx, by, size, contact, sweepTime) {
 
 export function drawInterceptors(ctx, sweepTime) {
   for (const interceptor of state.interceptors) {
-    if (interceptor.state === 'READY' || interceptor.state === 'CRASHED') continue;
+    if (interceptor.state === 'READY' || interceptor.state === 'CRASHED' || interceptor.state === 'TURNAROUND' || interceptor.state === 'MAINTENANCE') continue;
 
     const [ix, iy] = toCanvas(interceptor.x, interceptor.y);
     const fuelPct = interceptor.fuel / interceptor.fuelMax;
@@ -502,7 +502,7 @@ export function drawInterceptors(ctx, sweepTime) {
       ctx.stroke();
     }
 
-    // Selected ring
+    // Selected ring + fuel range envelope from current position
     if (isSelected) {
       ctx.beginPath();
       ctx.arc(ix, iy, size + 5, 0, Math.PI * 2);
@@ -510,6 +510,18 @@ export function drawInterceptors(ctx, sweepTime) {
       ctx.lineWidth = 1;
       ctx.shadowBlur = 0;
       ctx.stroke();
+
+      // Remaining fuel range ring
+      const remainSec = interceptor.fuel / interceptor.spec.fuelBurnRate;
+      const remainNm = (remainSec * interceptor.speed / 3600) / 2;
+      const remainR = remainNm * nmToPixels();
+      ctx.beginPath();
+      ctx.arc(ix, iy, remainR, 0, Math.PI * 2);
+      ctx.strokeStyle = isBingo ? 'rgba(255, 204, 0, 0.15)' : 'rgba(0, 255, 136, 0.12)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
 
     // ID mission indicator — pulsing ring
@@ -579,6 +591,87 @@ export function drawInterceptors(ctx, sweepTime) {
       ctx.lineTo(bx, by);
       ctx.stroke();
       ctx.setLineDash([]);
+    }
+
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════
+// MISSILES
+// ═══════════════════════════════════════════
+
+export function drawMissiles(ctx) {
+  for (const missile of state.missiles) {
+    const [mx, my] = toCanvas(missile.x, missile.y);
+
+    ctx.save();
+
+    if (missile.state === 'FLIGHT') {
+      // In-flight: bright yellow dot with trail
+      const color = '#ffff00';
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 6;
+
+      ctx.beginPath();
+      ctx.arc(mx, my, 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Trail behind missile (canvas Y is flipped: north=up, sin inverted)
+      const trailLen = 10;
+      const tx = mx - Math.cos(missile.heading) * trailLen;
+      const ty = my + Math.sin(missile.heading) * trailLen;
+      ctx.strokeStyle = 'rgba(255, 255, 0, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.moveTo(mx, my);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+
+      // Line from missile to target
+      if (missile.target && missile.target.state === 'ACTIVE') {
+        const [ttx, tty] = toCanvas(missile.target.x, missile.target.y);
+        ctx.strokeStyle = 'rgba(255, 255, 0, 0.15)';
+        ctx.lineWidth = 0.5;
+        ctx.setLineDash([2, 4]);
+        ctx.beginPath();
+        ctx.moveTo(mx, my);
+        ctx.lineTo(ttx, tty);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    } else if (missile.resolveTime) {
+      // Resolved: brief flash
+      const elapsed = state.gameTime - missile.resolveTime;
+      const progress = elapsed / 3000;
+      if (progress < 1) {
+        const alpha = 1 - progress;
+        const isHit = missile.state === 'HIT';
+        const color = isHit ? GREEN_BRIGHT : RED_ALERT;
+        const size = 4 + progress * 8;
+
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 4 * alpha;
+
+        ctx.beginPath();
+        ctx.arc(mx, my, size, 0, Math.PI * 2);
+        ctx.stroke();
+
+        if (!isHit) {
+          // Miss — small X
+          ctx.beginPath();
+          ctx.moveTo(mx - 3, my - 3);
+          ctx.lineTo(mx + 3, my + 3);
+          ctx.moveTo(mx + 3, my - 3);
+          ctx.lineTo(mx - 3, my + 3);
+          ctx.stroke();
+        }
+      }
     }
 
     ctx.restore();
@@ -691,6 +784,24 @@ export function drawEffects(ctx, gameTime) {
         ctx.shadowBlur = 0;
         ctx.fillText('IMPACT', ex + ring1 + 4, ey + 3);
       }
+    } else if (effect.type === 'damage') {
+      // Cripple hit — orange flash
+      const size = 5 + progress * 8;
+      ctx.strokeStyle = AMBER;
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = AMBER;
+      ctx.shadowBlur = 6 * alpha;
+
+      ctx.beginPath();
+      ctx.arc(ex, ey, size, 0, Math.PI * 2);
+      ctx.stroke();
+
+      if (progress < 0.5) {
+        ctx.font = '9px "Courier New", monospace';
+        ctx.fillStyle = AMBER;
+        ctx.shadowBlur = 0;
+        ctx.fillText('DAMAGED', ex + size + 4, ey + 3);
+      }
     }
 
     ctx.shadowBlur = 0;
@@ -729,26 +840,45 @@ export function drawBases(ctx) {
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      const picked = state.selectedReadyInterceptor;
-      const aircraft = picked || base.interceptors.find(i => i.state === 'READY');
-      if (aircraft) {
+      // Fuel range envelopes — one ring per aircraft type with ready aircraft
+      const typesSeen = new Set();
+      const typeColors = {
+        'F-15A': 'rgba(255, 100, 100, 0.18)',
+        'F-16C': 'rgba(100, 255, 100, 0.18)',
+        'F-106A': 'rgba(100, 100, 255, 0.18)',
+        'E-3A': 'rgba(255, 200, 100, 0.18)',
+      };
+      for (const aircraft of base.interceptors) {
+        if (aircraft.state !== 'READY') continue;
+        if (typesSeen.has(aircraft.type)) continue;
+        typesSeen.add(aircraft.type);
+
         const enduranceSec = aircraft.fuel / aircraft.spec.fuelBurnRate;
         const rangeNm = (enduranceSec * aircraft.speed / 3600) / 2;
         const rangeR = rangeNm * pxPerNm;
+        const color = typeColors[aircraft.type] || 'rgba(0, 255, 136, 0.15)';
+
         ctx.beginPath();
         ctx.arc(bx, by, rangeR, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(0, 255, 136, 0.15)';
+        ctx.strokeStyle = color;
         ctx.lineWidth = 1;
         ctx.setLineDash([6, 4]);
         ctx.stroke();
         ctx.setLineDash([]);
+
+        // Label at top of ring
+        ctx.font = '7px "Courier New", monospace';
+        ctx.fillStyle = color.replace('0.18', '0.5');
+        ctx.fillText(`${aircraft.type} ${Math.round(rangeNm)}nm`, bx + 5, by - rangeR + 10);
       }
     }
 
     ctx.font = '8px "Courier New", monospace';
     ctx.fillStyle = GREEN_MID;
     const readyCount = base.interceptors.filter(i => i.state === 'READY').length;
-    ctx.fillText(`${base.name} [${readyCount}]`, bx + size + 3, by + 2);
+    const turnCount = base.interceptors.filter(i => i.state === 'TURNAROUND').length;
+    const turnLabel = turnCount > 0 ? ` T:${turnCount}` : '';
+    ctx.fillText(`${base.name} [${readyCount}]${turnLabel}`, bx + size + 3, by + 2);
   }
 }
 

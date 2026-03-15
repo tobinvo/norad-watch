@@ -86,6 +86,21 @@ export function calculateFinalScore() {
     breakdown.push({ label: `DEFCON ${state.defcon} PENALTY`, value: defconPenalty });
   }
 
+  // Missile efficiency
+  if (state.missilesExpended > 0) {
+    const hitRate = (state.missilesExpended - state.missilesMissed) / state.missilesExpended;
+    const efficiencyBonus = Math.round(hitRate * 100);
+    score += efficiencyBonus;
+    breakdown.push({ label: `MISSILE EFFICIENCY (${Math.round(hitRate * 100)}%)`, value: efficiencyBonus });
+  }
+
+  // Wasted missiles penalty
+  if (state.missilesMissed > 0) {
+    const wastePenalty = state.missilesMissed * -15;
+    score += wastePenalty;
+    breakdown.push({ label: `WASTED MISSILES (${state.missilesMissed})`, value: wastePenalty });
+  }
+
   state.score = Math.max(0, score);
   return { score: state.score, breakdown };
 }

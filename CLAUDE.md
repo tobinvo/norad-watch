@@ -3,7 +3,7 @@
 A browser-based cold-war NORAD air defense simulation. The player manages radar contacts, scrambles interceptors, and defends North American cities against escalating waves of airborne threats. Prioritizes the "control tower" feel — managing information and making decisions, not clicking frantically.
 
 ## Project Status
-**Phase: 8 complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post. Phase 6 added IFF pipeline + civilian traffic. Phase 7 added WCS (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements. Phase 8 added time compression (1-16x), auto-pause on critical events, game clock.
+**Phase: 9B complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post. Phase 6 added IFF pipeline + civilian traffic. Phase 7 added WCS (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements. Phase 8 added time compression (1-16x), auto-pause on critical events, game clock. Phase 9A added turnaround time, sortie limits, fuel range envelopes. Phase 9B added missiles as map entities, Pk, damage model.
 
 ## Tech Stack
 - **Vanilla JavaScript** + **HTML5 Canvas** — no frameworks, no build step
@@ -108,13 +108,23 @@ norad-watch/
 - **Phase 8:** Auto-pause cooldown (2s real-time) prevents spam
 - **Phase 8:** Sweep speed scales with time compression (radar sweeps faster at higher speeds)
 
-### Phase 9: Realistic Air Operations
-**Goal:** Finite resources, hard choices, vulnerability windows
+### Phase 9A: Resource Pressure ✓
+**Goal:** Finite resources, vulnerability windows
 
-1. **Aircraft turnaround time** — When jets land: refuel/rearm takes real game time. No instant reloads. Different aircraft have different turnaround costs — F-15A is heavy and complex (longer turnaround), F-16C is quick-turn designed, F-106A needs nuclear weapon handling (longest), E-3A needs extensive servicing. Turnaround time visible in the base detail panel with countdown. Creates gaps in coverage and makes the decision of WHEN to scramble (and what) matter — sending your F-15s early means they might be turning around when the real threat arrives.
-2. **Sortie limits** — Aircraft can fly ~4 sorties before mandatory extended maintenance (hours). Per-type variation: F-16C is more maintainable (5 sorties), F-106A is temperamental (3 sorties).
-3. **Fuel range envelopes** — Visual rings showing how far each aircraft can fly and still RTB. Commitment distance is visible.
-4. **Mission-based delegation** — Define patrol zones, assign aircraft to CAP missions. AI flies the pattern. Player intervenes on key decisions only (engage? redirect?). Prevents RTS micro.
+- **Phase 9A:** Aircraft turnaround time — RTB landing → TURNAROUND state with countdown (F-16C 20s, F-15A 30s, F-106A 40s, E-3A 60s real at 1x). Visible in base panel and asset panel.
+- **Phase 9A:** Sortie limits — per-type max sorties (F-16C: 5, F-15A: 4, F-106A: 3, E-3A: 2). Exhausted → MAINTENANCE (out of game). Sortie counter shown in detail panels.
+- **Phase 9A:** Fuel range envelopes — one ring per aircraft type when base selected (color-coded by type). Airborne interceptor selected shows remaining range ring from current position.
+
+### Phase 9B: Combat Overhaul ✓
+**Goal:** Missiles as entities, uncertainty, consequences
+
+- **Phase 9B:** Missiles as map entities — firing spawns visible AIM-120 AMRAAM (tracking, Mach 4) or AIR-2 Genie (unguided, Mach 3, nuclear) that fly to target with real flight time. Yellow dot with trail on radar.
+- **Phase 9B:** Probability of kill — AMRAAM basePk 0.70, Genie 0.95. Modified by target type (fighter x0.65, cruise missile x0.50, ICBM x0.30), range, and damage state. Auto-pause on miss.
+- **Phase 9B:** Damage model — hits can destroy or cripple. Crippled contacts (speed halved, orange "DAMAGED" effect) continue toward target. Second hit on damaged contact = guaranteed kill. Cruise missiles and ICBMs always destroy outright.
+- **Phase 9B:** Post-kill behavior — interceptors with remaining weapons enter CAP (retaskable) instead of auto-RTB. Re-engagement is automatic if missile misses and weapons remain.
+- **Phase 9B:** Missile efficiency scoring — bonus for high hit rate, penalty per wasted missile.
+
+### Phase 9C: Mission Systems — Define patrol zones, assign aircraft to CAP missions. AI flies the pattern. Player intervenes on key decisions only (engage? redirect?). Prevents RTS micro.
 5. **Tanker support** — KC-135 tanker orbits extend fighter endurance. Losing the tanker shortens your reach.
 6. **Missiles as map entities** — Firing a weapon spawns a visible missile entity that flies to the target with real flight time and speed. No more instant kills at weapons range. Player sees the missile track on radar, watches it close. Missile types (AIM-120 AMRAAM, AIM-7 Sparrow, AIR-2 Genie) have different speeds, ranges, and guidance.
 7. **Probability of kill (Pk)** — Missiles aren't guaranteed hits. Pk affected by target type, aspect angle, ECM, and range at launch. A miss means deciding whether to re-engage (spend another missile) or let it go.
@@ -207,7 +217,8 @@ norad-watch/
 
 ### Aircraft States
 - READY — on ground at base, available for scramble
-- TURNAROUND — on ground, refueling/rearming (unavailable)
+- TURNAROUND — on ground, refueling/rearming (countdown timer, unavailable)
+- MAINTENANCE — sortie limit reached, permanently out of game
 - AIRBORNE — in flight, heading to target or CAP point
 - ENGAGED — in weapons range, engaging threat
 - RTB — returning to base

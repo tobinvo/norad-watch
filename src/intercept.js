@@ -1,7 +1,8 @@
-import { CITY_IMPACT_RADIUS, THREAT_TYPES, CIVILIAN_KILL_PENALTY } from './constants.js';
+import { CITY_IMPACT_RADIUS, THREAT_TYPES, MISSILE_TYPES } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
 import { isInProsecutionZone } from './sector.js';
+import { createMissile } from './entities.js';
 
 function dist(a, b) {
   const dx = a.x - b.x;
@@ -9,11 +10,21 @@ function dist(a, b) {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
+// Check if this interceptor already has a missile in flight toward its target
+function hasMissileInFlight(interceptor) {
+  return state.missiles.some(m =>
+    m.shooter === interceptor && m.target === interceptor.target && m.state === 'FLIGHT'
+  );
+}
+
 export function resolveEngagements() {
+  // ── Process interceptor missile launches ──
   for (const interceptor of state.interceptors) {
     if (interceptor.state !== 'AIRBORNE' || !interceptor.target) continue;
 
-    // No weapons
+    const contact = interceptor.target;
+
+    // No weapons — winchester
     if (interceptor.weapons <= 0) {
       interceptor.target = null;
       interceptor.state = 'RTB';
@@ -21,11 +32,18 @@ export function resolveEngagements() {
       continue;
     }
 
-    const contact = interceptor.target;
+    // Target already neutralized — assess
     if (contact.state !== 'ACTIVE') {
       interceptor.target = null;
-      interceptor.state = 'RTB';
-      addLog(`${interceptor.id} TARGET NEUTRALIZED — RTB`, '');
+      if (interceptor.weapons > 0) {
+        // Still armed — CAP at current position, available for retasking
+        interceptor.state = 'CAP';
+        interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
+        addLog(`${interceptor.id} TARGET DOWN — ${interceptor.weapons}x ${interceptor.spec.weaponType} REMAINING — AWAITING ORDERS`, '');
+      } else {
+        interceptor.state = 'RTB';
+        addLog(`${interceptor.id} TARGET NEUTRALIZED — RTB`, '');
+      }
       continue;
     }
 
@@ -40,48 +58,51 @@ export function resolveEngagements() {
       }
     }
 
+    // Check range and fire if no missile already in flight
     const d = dist(interceptor, contact);
     const range = interceptor.spec.weaponsRange;
-    if (d <= range) {
-      const weaponName = interceptor.spec.weaponType;
-      const callout = weaponName === 'GENIE' ? 'FOX ONE — GENIE' : 'FOX THREE';
-      addLog(`${interceptor.id} WEAPONS RANGE ON ${contact.id} — ${callout}`, 'alert');
-
+    if (d <= range && !hasMissileInFlight(interceptor)) {
+      const mSpec = MISSILE_TYPES[interceptor.spec.weaponType];
+      const missile = createMissile(interceptor, contact);
+      state.missiles.push(missile);
       interceptor.weapons--;
-      contact.state = 'NEUTRALIZED';
-
-      if (contact.isCivilian) {
-        // CIVILIAN SHOOTDOWN
-        state.civiliansKilled++;
-        contact.classification = 'IDENTIFIED';
-        contact.allegiance = 'FRIENDLY';
-        contact.classCategory = contact.typeLabel;
-        addLog(`■ CIVILIAN AIRCRAFT DESTROYED — ${contact.id} WAS ${contact.typeLabel} ■`, 'alert');
-        addLog(`■ CATASTROPHIC ERROR — CIVILIAN SHOOTDOWN ■`, 'alert');
-        state.effects.push({ x: contact.x, y: contact.y, type: 'impact', startTime: state.gameTime });
-      } else {
-        state.threatsNeutralized++;
-        const threatSpec = THREAT_TYPES[contact.type];
-        addLog(`${contact.id} SPLASH — KILL CONFIRMED (${threatSpec.label})`, 'alert');
-        state.effects.push({ x: contact.x, y: contact.y, type: 'kill', startTime: state.gameTime });
-      }
-
-      interceptor.target = null;
-      if (interceptor.weapons <= 0) {
-        interceptor.state = 'RTB';
-        addLog(`${interceptor.id} WINCHESTER — RTB`, '');
-      } else {
-        interceptor.state = 'RTB';
-        addLog(`${interceptor.id} ${interceptor.weapons} ${interceptor.spec.weaponType} REMAINING — RTB`, '');
-      }
+      state.missilesExpended++;
+      addLog(`${interceptor.id} ${mSpec.callsign} — MISSILE AWAY ON ${contact.id}`, 'alert');
     }
   }
 
-  // Check threats reaching cities (only non-civilian contacts with targets)
+  // ── Process missile resolution effects on interceptors ──
+  for (const interceptor of state.interceptors) {
+    if (interceptor.state !== 'AIRBORNE' || !interceptor.target) continue;
+
+    const contact = interceptor.target;
+
+    // Target was destroyed (by our missile or someone else's)
+    if (contact.state === 'NEUTRALIZED') {
+      interceptor.target = null;
+      if (interceptor.weapons > 0) {
+        interceptor.state = 'CAP';
+        interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
+        addLog(`${interceptor.id} SPLASH — ${interceptor.weapons}x ${interceptor.spec.weaponType} REMAINING — AWAITING ORDERS`, '');
+      } else {
+        interceptor.state = 'RTB';
+        addLog(`${interceptor.id} WINCHESTER — RTB`, '');
+      }
+      continue;
+    }
+
+    // Target still active but we're out of ammo and no missile in flight
+    if (interceptor.weapons <= 0 && !hasMissileInFlight(interceptor)) {
+      interceptor.target = null;
+      interceptor.state = 'RTB';
+      addLog(`${interceptor.id} WINCHESTER — NO WEAPONS — RTB`, 'warn');
+    }
+    // Otherwise: target still active, interceptor keeps pursuing and will re-fire when in range
+  }
+
+  // ── Check threats reaching cities ──
   for (const contact of state.contacts) {
     if (contact.state !== 'ACTIVE') continue;
-
-    // Civilians and contacts without city targets don't impact cities
     if (contact.isCivilian || !contact.targetCity) continue;
 
     const d = dist(contact, contact.targetCity);
@@ -90,7 +111,6 @@ export function resolveEngagements() {
       contact.targetCity.hp = 0;
       state.citiesHit++;
 
-      // Reveal type on impact
       contact.classification = 'IDENTIFIED';
       contact.allegiance = 'HOSTILE';
       const typeLabel = THREAT_TYPES[contact.type]?.label || contact.type;
@@ -117,7 +137,7 @@ export function resolveEngagements() {
     }
   }
 
-  // Civilian exit cleanup — civilians that leave the sector
+  // ── Civilian exit cleanup ──
   for (const contact of state.contacts) {
     if (contact.state !== 'ACTIVE' || !contact.isCivilian) continue;
     if (!isInProsecutionZone(contact.x, contact.y)) {
@@ -129,7 +149,6 @@ export function resolveEngagements() {
 export function checkWinLose() {
   if (state.status !== 'ACTIVE') return;
 
-  // Only count non-civilian active contacts for win condition
   const activeThreats = state.contacts.filter(t => t.state === 'ACTIVE' && !t.isCivilian);
 
   if (state.wavesComplete && activeThreats.length === 0) {

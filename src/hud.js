@@ -71,10 +71,16 @@ export function renderContacts() {
     if (!isActive) tr.classList.add('neutralized');
     if (state.selectedThreat === contact) tr.classList.add('selected');
 
+    const hasMslInbound = state.missiles.some(m => m.target === contact && m.state === 'FLIGHT');
     let statusText = contact.state === 'NEUTRALIZED' ? 'KILL' : contact.state;
-    if (isActive && assigned.length > 0) {
+    if (isActive && hasMslInbound) {
+      statusText = 'MSL';
+    } else if (isActive && assigned.length > 0) {
       const idAssigned = assigned.some(i => i.state === 'ID_MISSION');
       statusText = idAssigned ? 'ID' : `INTCPT (${assigned.length})`;
+    }
+    if (isActive && contact.damaged) {
+      statusText = 'DMG ' + statusText;
     }
 
     tr.innerHTML = `
@@ -132,11 +138,22 @@ export function renderAssets() {
         html += `<div class="asset-line asset-crashed">${interceptor.id} CRASHED</div>`;
         continue;
       }
+      if (interceptor.state === 'MAINTENANCE') {
+        html += `<div class="asset-line asset-crashed">${interceptor.id} MAINT (${interceptor.sorties}/${interceptor.spec.maxSorties})</div>`;
+        continue;
+      }
+      if (interceptor.state === 'TURNAROUND') {
+        const remainMs = interceptor.turnaroundUntil - state.gameTime;
+        const remainMin = Math.max(0, Math.ceil(remainMs / 1000 / 60));
+        html += `<div class="asset-line" style="color: #888">${interceptor.id} TURN ${remainMin}min (${interceptor.sorties}/${interceptor.spec.maxSorties})</div>`;
+        continue;
+      }
       const targetInfo = interceptor.target ? ` → ${interceptor.target.id}` : '';
       const idInfo = interceptor.idTarget ? ` ID:${interceptor.idTarget.id}` : '';
       const capInfo = interceptor.state === 'CAP' ? ' CAP' : '';
+      const mslTag = state.missiles.some(m => m.shooter === interceptor && m.state === 'FLIGHT') ? ' MSL' : '';
       const stateLabel = interceptor.state === 'ID_MISSION' ? 'ID' : interceptor.state;
-      html += `<div class="asset-line">${interceptor.id} ${stateLabel}${targetInfo}${idInfo}${capInfo} ${fuelBarHTML(interceptor)}</div>`;
+      html += `<div class="asset-line">${interceptor.id} ${stateLabel}${targetInfo}${idInfo}${capInfo}${mslTag} ${fuelBarHTML(interceptor)}</div>`;
     }
 
     block.innerHTML = html;
@@ -170,6 +187,17 @@ export function renderSelectionDetail() {
     html += `<div class="detail-row"><span class="detail-label">HDG</span><span class="detail-value">${t.hdgDeg}°</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">SPD</span><span class="detail-value">${ktsToMph(t.speed)} MPH</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">ALT</span><span class="detail-value">${t.altitude.toLocaleString()} FT</span></div>`;
+
+    // Damage status
+    if (t.damaged) {
+      html += `<div class="detail-row"><span class="detail-label">STATUS</span><span class="detail-value" style="color: #ff8800">DAMAGED — SPEED REDUCED</span></div>`;
+    }
+
+    // Missile inbound
+    const inboundMissiles = state.missiles.filter(m => m.target === t && m.state === 'FLIGHT');
+    if (inboundMissiles.length > 0) {
+      html += `<div class="detail-row"><span class="detail-label">INBOUND</span><span class="detail-value" style="color: #ffff00">${inboundMissiles.length}x MISSILE</span></div>`;
+    }
 
     // Range + ETA to target (only for hostile with target city)
     if (t.targetCity && t.allegiance === 'HOSTILE') {
@@ -216,6 +244,7 @@ export function renderSelectionDetail() {
     html += `<div class="detail-row"><span class="detail-label">STATE</span><span class="detail-value">${stateLabel}</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">FUEL</span><span class="detail-value ${fuelPct <= 25 ? 'hostile' : ''}">${fuelPct}%</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">WEAPONS</span><span class="detail-value">${i.weapons}x ${i.spec.weaponType || 'NONE'}</span></div>`;
+    html += `<div class="detail-row"><span class="detail-label">SORTIES</span><span class="detail-value">${i.sorties}/${i.spec.maxSorties}</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">BASE</span><span class="detail-value">${i.base.name}</span></div>`;
 
     // WCS
@@ -225,6 +254,12 @@ export function renderSelectionDetail() {
     const wcsLabel = unitWcs ? `${unitWcs} (OVERRIDE)` : `${state.wcs} (GLOBAL)`;
     html += `<div class="detail-row"><span class="detail-label">WCS</span><span class="detail-value ${wcsColor}">${wcsLabel}</span></div>`;
 
+    // Missile in flight indicator
+    const activeMissiles = state.missiles.filter(m => m.shooter === i && m.state === 'FLIGHT');
+    if (activeMissiles.length > 0) {
+      html += `<div class="detail-row"><span class="detail-label">MISSILE</span><span class="detail-value" style="color: #ffff00">AWAY (${activeMissiles.length})</span></div>`;
+    }
+
     if (i.target) {
       html += `<div class="detail-row"><span class="detail-label">TARGET</span><span class="detail-value hostile">${i.target.id}</span></div>`;
     }
@@ -232,7 +267,7 @@ export function renderSelectionDetail() {
       html += `<div class="detail-row"><span class="detail-label">ID TGT</span><span class="detail-value" style="color: #ff8800">${i.idTarget.id}</span></div>`;
     }
 
-    if (i.state !== 'RTB' && i.state !== 'CRASHED') {
+    if (!['RTB', 'CRASHED', 'TURNAROUND', 'MAINTENANCE'].includes(i.state)) {
       html += `<div class="detail-assigned" style="color: var(--yellow-warn)">R-CLICK: ENGAGE/ID/RTB | W = CYCLE WCS</div>`;
       html += `<div class="detail-actions"><button class="rtb-btn" data-interceptor-id="${i.id}">RTB</button></div>`;
     }
@@ -255,7 +290,11 @@ export function renderSelectionDetail() {
   } else if (state.selectedBase) {
     const b = state.selectedBase;
     const ready = b.interceptors.filter(i => i.state === 'READY');
-    const airborne = b.interceptors.filter(i => i.state !== 'READY' && i.state !== 'CRASHED');
+    const airborne = b.interceptors.filter(i =>
+      i.state !== 'READY' && i.state !== 'CRASHED' && i.state !== 'TURNAROUND' && i.state !== 'MAINTENANCE'
+    );
+    const turning = b.interceptors.filter(i => i.state === 'TURNAROUND');
+    const maint = b.interceptors.filter(i => i.state === 'MAINTENANCE');
 
     let html = `<div class="detail-header">▶ ${b.name}</div>`;
 
@@ -263,12 +302,27 @@ export function renderSelectionDetail() {
       const isSelected = state.selectedReadyInterceptor === i;
       const selClass = isSelected ? ' aircraft-selected' : '';
       const weaponInfo = i.spec.weaponType ? `${i.weapons}x ${i.spec.weaponType}` : 'NO WEAPONS';
+      const sortieInfo = `S${i.sorties}/${i.spec.maxSorties}`;
       html += `<div class="aircraft-row${selClass}" data-interceptor-id="${i.id}">`;
       html += `<span class="detail-label">${i.id}</span>`;
       html += `<span class="detail-value friendly">${i.type}</span>`;
       html += `<span class="detail-value">${weaponInfo}</span>`;
-      html += `<span class="detail-value">${fuelBarHTML(i)}</span>`;
+      html += `<span class="detail-value">${sortieInfo}</span>`;
       html += `</div>`;
+    }
+
+    if (turning.length > 0) {
+      for (const i of turning) {
+        const remainMs = i.turnaroundUntil - state.gameTime;
+        const remainMin = Math.max(0, Math.ceil(remainMs / 1000 / 60));
+        html += `<div class="detail-assigned" style="color: #888">${i.id} TURNAROUND ${remainMin}min (S${i.sorties}/${i.spec.maxSorties})</div>`;
+      }
+    }
+
+    if (maint.length > 0) {
+      for (const i of maint) {
+        html += `<div class="detail-assigned" style="color: #555">${i.id} MAINTENANCE — OUT</div>`;
+      }
     }
 
     if (airborne.length > 0) {
@@ -285,6 +339,7 @@ export function renderSelectionDetail() {
     if (state.selectedReadyInterceptor) {
       const s = state.selectedReadyInterceptor.spec;
       const ratingBar = (n) => '█'.repeat(n) + '░'.repeat(3 - n);
+      const sri = state.selectedReadyInterceptor;
       html += `<div class="aircraft-stats">`;
       html += `<div class="detail-row"><span class="detail-label">TYPE</span><span class="detail-value friendly">${s.name}</span></div>`;
       html += `<div class="detail-row"><span class="detail-label">ROLE</span><span class="detail-value">${s.role}</span></div>`;
@@ -292,8 +347,9 @@ export function renderSelectionDetail() {
       html += `<div class="detail-row"><span class="detail-label">RNG</span><span class="detail-value">${ratingBar(s.rangeRating)}</span></div>`;
       html += `<div class="detail-row"><span class="detail-label">END</span><span class="detail-value">${ratingBar(s.enduranceRating)}</span></div>`;
       if (s.weaponType) {
-        html += `<div class="detail-row"><span class="detail-label">ARM</span><span class="detail-value">${state.selectedReadyInterceptor.weapons}x ${s.weaponType}</span></div>`;
+        html += `<div class="detail-row"><span class="detail-label">ARM</span><span class="detail-value">${sri.weapons}x ${s.weaponType}</span></div>`;
       }
+      html += `<div class="detail-row"><span class="detail-label">SRT</span><span class="detail-value">${sri.sorties}/${s.maxSorties} (${Math.round(s.turnaroundTime / 60)}min turn)</span></div>`;
       html += `<div class="aircraft-desc">${s.desc}</div>`;
       html += `</div>`;
       html += `<div class="detail-assigned" style="color: var(--yellow-warn)">R-CLICK: HOSTILE=SCRAMBLE | UNKNOWN=ID | EMPTY=CAP</div>`;
@@ -344,8 +400,10 @@ export function selectThreat(contact) {
 
 export function selectBase(base) {
   const readyCount = base.interceptors.filter(i => i.state === 'READY').length;
+  const turningCount = base.interceptors.filter(i => i.state === 'TURNAROUND').length;
   if (readyCount === 0) {
-    addLog(`${base.name} — NO AIRCRAFT AVAILABLE`, 'warn');
+    const extra = turningCount > 0 ? ` (${turningCount} IN TURNAROUND)` : '';
+    addLog(`${base.name} — NO AIRCRAFT AVAILABLE${extra}`, 'warn');
     return;
   }
   state.selectedBase = base;
