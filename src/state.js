@@ -4,7 +4,6 @@
 
 export const state = {
   // Timing
-  sweepAngle: 0,
   lastTimestamp: 0,
   gameTime: 0, // total elapsed game-ms
 
@@ -51,6 +50,9 @@ export const state = {
 
   // Visual effects
   effects: [],
+
+  // Weapons Control State
+  wcs: 'TIGHT',  // Global: 'FREE', 'TIGHT', 'HOLD'
 
   // Game status
   paused: false,

@@ -3,7 +3,7 @@ import { state } from './state.js';
 import { SECTOR, toCanvas, updateCanvasSize } from './sector.js';
 import { createBase, createCity, moveContact, moveInterceptor } from './entities.js';
 import { drawMap } from './map.js';
-import { drawRangeRings, drawRadarSites, drawSweep, drawContacts, drawInterceptors, drawBases, drawCities, drawEffects, drawAwacsRange } from './radar.js';
+import { drawRangeRings, drawRadarSites, drawSweep, drawContacts, drawInterceptors, drawBases, drawCities, drawEffects, drawAwacsRange, initRadarSweeps } from './radar.js';
 import { trySpawnThreat } from './spawner.js';
 import { initCivilianTraffic, trySpawnCivilian } from './civilians.js';
 import { resolveEngagements, checkWinLose } from './intercept.js';
@@ -51,6 +51,8 @@ function initGame() {
   // Spawn initial civilian traffic
   initCivilianTraffic();
 
+  initRadarSweeps();
+
   addLog('NORAD WATCH STATION ONLINE — NORTHEAST ADIZ', '');
   addLog(`${state.radarSites.length} RADAR SITES ACTIVE — COVERAGE NORMAL`, '');
   addLog('CIVILIAN AIR TRAFFIC IN SECTOR — IFF ACTIVE', '');
@@ -59,7 +61,6 @@ function initGame() {
 }
 
 function resetGame() {
-  state.sweepAngle = 0;
   state.lastTimestamp = 0;
   state.gameTime = 0;
   state.bases = [];
@@ -86,6 +87,7 @@ function resetGame() {
   state.blipVisibility = {};
   state.logEntries = [];
   state.effects = [];
+  state.wcs = 'TIGHT';
   state.paused = false;
   state.status = 'ACTIVE';
   state.threatsNeutralized = 0;

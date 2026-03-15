@@ -1,5 +1,6 @@
 import { AIRCRAFT_TYPES, THREAT_TYPES, ARRIVAL_THRESHOLD, ID_RANGE, ID_TIME, CIVILIAN_TYPES } from './constants.js';
 import { state } from './state.js';
+import { addLog } from './hud.js';
 
 // ═══════════════════════════════════════════
 // CITY
@@ -294,15 +295,26 @@ function completeIdentification(interceptor) {
   if (contact.isCivilian) {
     contact.allegiance = 'FRIENDLY';
     contact.classCategory = contact.typeLabel;
+    addLog(`${interceptor.id} VISUAL ID — ${contact.id} IS ${contact.classCategory} — FRIENDLY`, '');
   } else {
     contact.allegiance = 'HOSTILE';
     const spec = THREAT_TYPES[contact.type];
     contact.classCategory = spec ? spec.label : contact.type;
+    addLog(`${interceptor.id} VISUAL ID — ${contact.id} IS ${contact.classCategory} — HOSTILE`, 'alert');
   }
 
   interceptor.idTarget = null;
   interceptor.idProgress = 0;
-  // Stay airborne — available for reassignment (don't auto-RTB)
+
+  // Hostile + has weapons → auto-engage
+  if (contact.allegiance === 'HOSTILE' && interceptor.weapons > 0) {
+    interceptor.state = 'AIRBORNE';
+    interceptor.target = contact;
+    addLog(`${interceptor.id} ENGAGING ${contact.id}`, 'alert');
+    return;
+  }
+
+  // Friendly or no weapons — orbit here
   interceptor.state = 'CAP';
   interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
 }

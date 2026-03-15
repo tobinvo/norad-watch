@@ -218,6 +218,13 @@ export function renderSelectionDetail() {
     html += `<div class="detail-row"><span class="detail-label">WEAPONS</span><span class="detail-value">${i.weapons}x ${i.spec.weaponType || 'NONE'}</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">BASE</span><span class="detail-value">${i.base.name}</span></div>`;
 
+    // WCS
+    const unitWcs = i.wcs || null;
+    const effectiveWcs = unitWcs || state.wcs;
+    const wcsColor = { FREE: 'hostile', TIGHT: '', HOLD: 'friendly' }[effectiveWcs] || '';
+    const wcsLabel = unitWcs ? `${unitWcs} (OVERRIDE)` : `${state.wcs} (GLOBAL)`;
+    html += `<div class="detail-row"><span class="detail-label">WCS</span><span class="detail-value ${wcsColor}">${wcsLabel}</span></div>`;
+
     if (i.target) {
       html += `<div class="detail-row"><span class="detail-label">TARGET</span><span class="detail-value hostile">${i.target.id}</span></div>`;
     }
@@ -226,10 +233,24 @@ export function renderSelectionDetail() {
     }
 
     if (i.state !== 'RTB' && i.state !== 'CRASHED') {
-      html += `<div class="detail-assigned" style="color: var(--yellow-warn)">R-CLICK: HOSTILE=ENGAGE | UNKNOWN=ID | BASE=RTB</div>`;
+      html += `<div class="detail-assigned" style="color: var(--yellow-warn)">R-CLICK: ENGAGE/ID/RTB | W = CYCLE WCS</div>`;
+      html += `<div class="detail-actions"><button class="rtb-btn" data-interceptor-id="${i.id}">RTB</button></div>`;
     }
 
     el.innerHTML = html;
+
+    // Bind RTB button
+    const rtbBtn = el.querySelector('.rtb-btn');
+    if (rtbBtn) {
+      rtbBtn.addEventListener('click', () => {
+        i.state = 'RTB';
+        i.target = null;
+        i.idTarget = null;
+        i.capPoint = null;
+        addLog(`${i.id} — RTB ORDERED`, '');
+        state.selectedInterceptor = null;
+      });
+    }
 
   } else if (state.selectedBase) {
     const b = state.selectedBase;
@@ -386,6 +407,17 @@ export function renderStatusBar() {
     const defconColors = { 5: '#00ff41', 4: '#00cc33', 3: '#ffcc00', 2: '#ff8800', 1: '#ff4444' };
     defconEl.style.color = defconColors[state.defcon] || '#ffcc00';
     defconEl.style.textShadow = `0 0 8px ${defconColors[state.defcon]}44`;
+  }
+
+  // WCS indicator
+  const wcsEl = document.getElementById('wcsIndicator');
+  if (wcsEl) {
+    wcsEl.textContent = `WCS ${state.wcs}`;
+    const wcsColors = { FREE: '#ff4444', TIGHT: '#ffcc00', HOLD: '#00ff41' };
+    const color = wcsColors[state.wcs];
+    wcsEl.style.color = color;
+    wcsEl.style.borderColor = color;
+    wcsEl.style.textShadow = `0 0 6px ${color}44`;
   }
 
   const waveEl = document.getElementById('waveIndicator');

@@ -3,7 +3,7 @@
 A browser-based cold-war NORAD air defense simulation. The player manages radar contacts, scrambles interceptors, and defends North American cities against escalating waves of airborne threats. Prioritizes the "control tower" feel — managing information and making decisions, not clicking frantically.
 
 ## Project Status
-**Phase: 6 complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post: Northeast ADIZ (~500nm across), nm-based coordinate system, 3 radar sites with detection coverage, sector/prosecution boundaries, coastline map, GAME_SPEED=30 time scaling, proper knots→nm/s movement.
+**Phase: 7 complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post: Northeast ADIZ (~500nm across), nm-based coordinate system, 3 radar sites with detection coverage, sector/prosecution boundaries, coastline map, GAME_SPEED=30 time scaling, proper knots→nm/s movement. Phase 6 added contact classification pipeline, civilian traffic, IFF. Phase 7 added Weapons Control States (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements.
 
 ## Tech Stack
 - **Vanilla JavaScript** + **HTML5 Canvas** — no frameworks, no build step
@@ -83,16 +83,19 @@ norad-watch/
 - **Phase 6:** Classification-based blip shapes (dot→category shape→specific type)
 - **Phase 6:** Fuel rebalanced (F-15A 83s, F-16C 119s, F-106A 51s, E-3A 238s real endurance)
 
-### Phase 7: Rules of Engagement
+### Phase 7: Rules of Engagement ✓
 **Goal:** Consequences for trigger-happiness and hesitation
 
-1. **Weapons Control States (WCS):**
-   - **FREE** — Fire at any target not positively identified as friendly
-   - **TIGHT** — Fire only at targets positively identified as hostile
-   - **HOLD** — Fire only in self-defense
-2. **Global + per-unit WCS** — Set a default for the sector, override for specific units
-3. **Civilian shootdown = scenario failure** — Engaging an unidentified contact that turns out to be civilian is catastrophic. Score penalty, possible instant loss.
-4. **The dilemma** — Stay TIGHT and risk a bomber getting through, or go FREE and risk downing a 747?
+- **Phase 7:** Weapons Control States — FREE (engage anything not friendly), TIGHT (hostile only), HOLD (no engagement)
+- **Phase 7:** Global WCS in top bar (color-coded: FREE=red, TIGHT=yellow, HOLD=green)
+- **Phase 7:** Per-unit WCS override on airborne interceptors
+- **Phase 7:** W key cycles WCS (global when nothing selected, per-unit when interceptor selected)
+- **Phase 7:** Engagement logic gated on effective WCS — FREE allows engaging UNKNOWN contacts (risky)
+- **Phase 7:** Log labels "[WCS FREE]" when engaging unidentified targets
+- **Phase 7:** Per-site radar sweeps — each radar station has its own rotating sweep within its coverage circle (replaces old center sweep)
+- **Phase 7:** AWACS detection circle visible with label, continuous tracking (0.85 alpha, no sweep)
+- **Phase 7:** AWACS instant classification — superior signal processing auto-classifies contacts in range
+- **Phase 7:** RTB button in interceptor detail panel
 
 ### Phase 8: Time Compression & Pacing
 **Goal:** Real watch-station rhythm — long quiet, sudden crisis
@@ -146,6 +149,7 @@ norad-watch/
 5. **Post-scenario debrief** — Timeline replay showing all contacts, your decisions, outcomes. "What you missed" reveal.
 6. **Communication delays** — Detection → authorization → scramble has a time cost. Not instant.
 7. **Crew proficiency** — Affects reaction times, ID speed, engagement accuracy
+8. **Map zoom** — Mouse wheel zoom in/out on the radar map. Zoom toward cursor position. Maintains nm coordinate accuracy at all zoom levels. Pan with click-drag when zoomed in.
 
 ### Phase Summary
 | Phase | Delivers | Feel |

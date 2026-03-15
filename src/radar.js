@@ -66,35 +66,6 @@ export function drawRadarSites(ctx) {
 }
 
 // ═══════════════════════════════════════════
-// RADAR DETECTION
-// ═══════════════════════════════════════════
-
-function isInRadarRange(x, y, contactType, isCivilian) {
-  const spec = (!isCivilian && contactType) ? THREAT_TYPES[contactType] : null;
-
-  for (const site of state.radarSites) {
-    const dx = x - site.x;
-    const dy = y - site.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    const effectiveRange = (spec && spec.detectionRange)
-      ? Math.min(site.rangeNm, spec.detectionRange)
-      : site.rangeNm;
-
-    if (dist <= effectiveRange) return true;
-  }
-
-  for (const awacs of getActiveAWACS()) {
-    const dx = x - awacs.x;
-    const dy = y - awacs.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist <= AWACS_DETECTION_RANGE) return true;
-  }
-
-  return false;
-}
-
-// ═══════════════════════════════════════════
 // ALLEGIANCE COLORS
 // ═══════════════════════════════════════════
 
@@ -105,49 +76,72 @@ function getAllegianceColor(contact) {
 }
 
 // ═══════════════════════════════════════════
-// SWEEP
+// SWEEP — per-site rotating sweep lines
 // ═══════════════════════════════════════════
 
+export function initRadarSweeps() {
+  // Offset each site's sweep so they don't all start in sync
+  state.radarSites.forEach((site, i) => {
+    site.sweepOffset = (i / state.radarSites.length) * SWEEP_PERIOD;
+    site.sweepAngle = 0;
+  });
+}
+
 export function drawSweep(ctx, gameTime, sweepTime) {
-  const [cx, cy] = toCanvas(0, 0);
   const pxPerNm = nmToPixels();
-  const maxR = SECTOR.extentX * pxPerNm;
 
-  state.sweepAngle = ((sweepTime % SWEEP_PERIOD) / SWEEP_PERIOD) * Math.PI * 2;
+  for (const site of state.radarSites) {
+    const adjustedTime = sweepTime + (site.sweepOffset || 0);
+    site.sweepAngle = ((adjustedTime % SWEEP_PERIOD) / SWEEP_PERIOD) * Math.PI * 2;
 
-  const trailSteps = 30;
-  for (let i = 0; i < trailSteps; i++) {
-    const frac = i / trailSteps;
-    const angle = state.sweepAngle - (SWEEP_TRAIL_ANGLE * frac);
-    const alpha = 0.12 * (1 - frac);
+    const [sx, sy] = toCanvas(site.x, site.y);
+    const maxR = site.rangeNm * pxPerNm;
+
+    // Clip to site coverage circle
+    ctx.save();
     ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    const stepAngle = SWEEP_TRAIL_ANGLE / trailSteps;
-    ctx.arc(cx, cy, maxR, angle - stepAngle, angle);
-    ctx.closePath();
-    ctx.fillStyle = `rgba(0, 255, 65, ${alpha})`;
+    ctx.arc(sx, sy, maxR, 0, Math.PI * 2);
+    ctx.clip();
+
+    // Trail
+    const trailSteps = 20;
+    for (let i = 0; i < trailSteps; i++) {
+      const frac = i / trailSteps;
+      const angle = site.sweepAngle - (SWEEP_TRAIL_ANGLE * frac);
+      const alpha = 0.08 * (1 - frac);
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      const stepAngle = SWEEP_TRAIL_ANGLE / trailSteps;
+      ctx.arc(sx, sy, maxR, angle - stepAngle, angle);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(0, 255, 65, ${alpha})`;
+      ctx.fill();
+    }
+
+    // Sweep line
+    const endX = sx + Math.cos(site.sweepAngle) * maxR;
+    const endY = sy + Math.sin(site.sweepAngle) * maxR;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(endX, endY);
+    ctx.strokeStyle = GREEN_BRIGHT;
+    ctx.lineWidth = 1;
+    ctx.shadowColor = GREEN_BRIGHT;
+    ctx.shadowBlur = 6;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Center dot
+    ctx.beginPath();
+    ctx.arc(sx, sy, 2, 0, Math.PI * 2);
+    ctx.fillStyle = GREEN_BRIGHT;
+    ctx.shadowColor = GREEN_BRIGHT;
+    ctx.shadowBlur = 4;
     ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.restore();
   }
-
-  const endX = cx + Math.cos(state.sweepAngle) * maxR;
-  const endY = cy + Math.sin(state.sweepAngle) * maxR;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy);
-  ctx.lineTo(endX, endY);
-  ctx.strokeStyle = GREEN_BRIGHT;
-  ctx.lineWidth = 1.5;
-  ctx.shadowColor = GREEN_BRIGHT;
-  ctx.shadowBlur = 8;
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, 3, 0, Math.PI * 2);
-  ctx.fillStyle = GREEN_BRIGHT;
-  ctx.shadowColor = GREEN_BRIGHT;
-  ctx.shadowBlur = 6;
-  ctx.fill();
-  ctx.shadowBlur = 0;
 }
 
 // ═══════════════════════════════════════════
@@ -155,35 +149,76 @@ export function drawSweep(ctx, gameTime, sweepTime) {
 // ═══════════════════════════════════════════
 
 function updateBlipVisibility(contact, sweepTime) {
-  if (!isInRadarRange(contact.x, contact.y, contact.type, contact.isCivilian)) {
-    return 0;
-  }
+  const spec = (!contact.isCivilian && contact.type) ? THREAT_TYPES[contact.type] : null;
+  let maxAlpha = 0;
+  let freshSweep = false;
 
-  const [cx, cy] = toCanvas(0, 0);
-  const [bx, by] = toCanvas(contact.x, contact.y);
+  // Check each radar site's sweep
+  for (const site of state.radarSites) {
+    const dx = contact.x - site.x;
+    const dy = contact.y - site.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
 
-  const blipAngle = Math.atan2(by - cy, bx - cx);
-  let sweepNorm = ((state.sweepAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-  let blipNorm = ((blipAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-  let angleDiff = sweepNorm - blipNorm;
-  if (angleDiff < 0) angleDiff += Math.PI * 2;
+    const effectiveRange = (spec && spec.detectionRange)
+      ? Math.min(site.rangeNm, spec.detectionRange)
+      : site.rangeNm;
 
-  if (angleDiff < 0.15) {
-    const prev = state.blipVisibility[contact.id];
-    const wasZero = !prev || prev.alpha <= 0;
-    state.blipVisibility[contact.id] = { alpha: 1, lastSweepTime: sweepTime };
+    if (dist > effectiveRange) continue;
 
-    // Count sweep passes for classification
-    if (wasZero && contact.detected) {
-      contact.sweepsSeen++;
-      checkAutoClassify(contact);
+    // Check if this site's sweep has passed over the contact
+    const [sx, sy] = toCanvas(site.x, site.y);
+    const [bx, by] = toCanvas(contact.x, contact.y);
+
+    const blipAngle = Math.atan2(by - sy, bx - sx);
+    const sweepNorm = ((site.sweepAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    const blipNorm = ((blipAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    let angleDiff = sweepNorm - blipNorm;
+    if (angleDiff < 0) angleDiff += Math.PI * 2;
+
+    const siteKey = `${contact.id}_${site.name}`;
+
+    if (angleDiff < 0.15) {
+      const prev = state.blipVisibility[siteKey];
+      const wasZero = !prev || prev.alpha <= 0;
+      state.blipVisibility[siteKey] = { alpha: 1, lastSweepTime: sweepTime };
+      if (wasZero) freshSweep = true;
+      maxAlpha = 1;
+    } else if (state.blipVisibility[siteKey]) {
+      const elapsed = sweepTime - state.blipVisibility[siteKey].lastSweepTime;
+      const alpha = Math.max(0, 1 - (elapsed / BLIP_FADE_TIME));
+      state.blipVisibility[siteKey].alpha = alpha;
+      maxAlpha = Math.max(maxAlpha, alpha);
     }
-  } else if (state.blipVisibility[contact.id]) {
-    const elapsed = sweepTime - state.blipVisibility[contact.id].lastSweepTime;
-    state.blipVisibility[contact.id].alpha = Math.max(0, 1 - (elapsed / BLIP_FADE_TIME));
   }
 
-  return state.blipVisibility[contact.id]?.alpha || 0;
+  // AWACS provides continuous detection — persistent track, instant classification
+  for (const awacs of getActiveAWACS()) {
+    const dx = contact.x - awacs.x;
+    const dy = contact.y - awacs.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist <= AWACS_DETECTION_RANGE) {
+      maxAlpha = Math.max(maxAlpha, 0.85);
+      if (!contact.detected) freshSweep = true;
+      // AWACS radar auto-classifies — superior signal processing
+      if (contact.classification === 'UNKNOWN' && contact.detected) {
+        contact.classification = 'CLASSIFIED';
+        contact.classCategory = getClassCategory(contact.speed, contact.altitude);
+        addLog(`${contact.id} AWACS CLASSIFIED — ${contact.classCategory}`, 'warn');
+        if (contact.classCategory === 'BALLISTIC') {
+          contact.allegiance = 'HOSTILE';
+          addLog(`${contact.id} BALLISTIC TRACK — AUTO-DESIGNATED HOSTILE`, 'alert');
+        }
+      }
+    }
+  }
+
+  // Count sweep passes for classification
+  if (freshSweep && contact.detected) {
+    contact.sweepsSeen++;
+    checkAutoClassify(contact);
+  }
+
+  return maxAlpha;
 }
 
 function checkAutoClassify(contact) {
@@ -562,16 +597,25 @@ export function drawAwacsRange(ctx) {
     const [ax, ay] = toCanvas(a.x, a.y);
     const rangeR = AWACS_DETECTION_RANGE * pxPerNm;
 
+    // Coverage fill
     ctx.beginPath();
     ctx.arc(ax, ay, rangeR, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(0, 255, 65, 0.08)';
+    ctx.fillStyle = 'rgba(0, 255, 65, 0.03)';
+    ctx.fill();
+
+    // Coverage ring
+    ctx.beginPath();
+    ctx.arc(ax, ay, rangeR, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(0, 255, 65, 0.15)';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 6]);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.fillStyle = 'rgba(0, 255, 65, 0.02)';
-    ctx.fill();
+    // Label at top of circle
+    ctx.font = '7px "Courier New", monospace';
+    ctx.fillStyle = 'rgba(0, 255, 65, 0.25)';
+    ctx.fillText(`AWACS ${AWACS_DETECTION_RANGE}NM`, ax + 5, ay - rangeR + 10);
   }
 }
 

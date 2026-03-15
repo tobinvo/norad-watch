@@ -8,6 +8,23 @@ const BASE_HIT_RADIUS = 25;
 const THREAT_HIT_RADIUS = 25;
 const INTERCEPTOR_HIT_RADIUS = 20;
 
+const WCS_CYCLE = ['FREE', 'TIGHT', 'HOLD'];
+
+// Get effective WCS for an interceptor (unit override or global)
+function getEffectiveWCS(interceptor) {
+  return interceptor.wcs || state.wcs;
+}
+
+// Can this interceptor engage a contact given WCS?
+function canEngage(interceptor, contact) {
+  const wcs = getEffectiveWCS(interceptor);
+  if (wcs === 'HOLD') return false;
+  if (contact.allegiance === 'FRIENDLY') return false;
+  if (wcs === 'FREE') return contact.allegiance !== 'FRIENDLY';
+  // TIGHT — only confirmed hostile
+  return contact.allegiance === 'HOSTILE';
+}
+
 export function initInput(canvas) {
   canvasEl = canvas;
 
@@ -97,7 +114,8 @@ function handleRightClick(e) {
     }
 
     if (contactUnder) {
-      // Determine action based on contact allegiance
+      const wcs = getEffectiveWCS(picked);
+
       if (picked.spec.weapons === 0) {
         // AWACS — orbit near contact
         picked.state = 'CAP';
@@ -105,24 +123,31 @@ function handleRightClick(e) {
         picked.x = base.x;
         picked.y = base.y;
         addLog(`SCRAMBLE ORDER: ${picked.id} (${picked.type}) ${base.name} — ORBIT NEAR ${contactUnder.id}`, 'alert');
-      } else if (contactUnder.allegiance === 'HOSTILE') {
-        // Confirmed hostile — engage
+      } else if (contactUnder.allegiance === 'FRIENDLY') {
+        addLog(`${contactUnder.id} IS FRIENDLY — ENGAGEMENT DENIED`, 'warn');
+        return;
+      } else if (wcs === 'HOLD') {
+        addLog(`WEAPONS HOLD — ENGAGEMENT DENIED`, 'warn');
+        return;
+      } else if (canEngage(picked, contactUnder)) {
+        // WCS allows engagement
         picked.state = 'AIRBORNE';
         picked.target = contactUnder;
         picked.x = base.x;
         picked.y = base.y;
-        addLog(`SCRAMBLE ORDER: ${picked.id} (${picked.type}) ${base.name} → ${contactUnder.id}`, 'alert');
-      } else if (contactUnder.allegiance === 'FRIENDLY') {
-        addLog(`${contactUnder.id} IS FRIENDLY — ENGAGEMENT DENIED`, 'warn');
-        return;
-      } else {
-        // Unknown allegiance — send on ID mission
+        const wcsLabel = contactUnder.allegiance === 'UNKNOWN' ? ' [WCS FREE]' : '';
+        addLog(`SCRAMBLE ORDER: ${picked.id} (${picked.type}) ${base.name} → ${contactUnder.id}${wcsLabel}`, 'alert');
+      } else if (contactUnder.allegiance === 'UNKNOWN') {
+        // TIGHT + unknown — send on ID mission
         picked.state = 'ID_MISSION';
         picked.idTarget = contactUnder;
         picked.idProgress = 0;
         picked.x = base.x;
         picked.y = base.y;
         addLog(`${picked.id} SCRAMBLE — VISUAL ID ON ${contactUnder.id}`, 'alert');
+      } else {
+        addLog(`WCS ${wcs} — CANNOT ENGAGE ${contactUnder.id}`, 'warn');
+        return;
       }
       state.selectedBase = null;
       state.selectedThreat = null;
@@ -147,24 +172,33 @@ function handleRightClick(e) {
     if (interceptor.state === 'CRASHED' || interceptor.state === 'READY') return;
 
     if (contactUnder && contactUnder.state === 'ACTIVE') {
-      if (contactUnder.allegiance === 'HOSTILE') {
-        // Engage confirmed hostile
+      const wcs = getEffectiveWCS(interceptor);
+
+      if (contactUnder.allegiance === 'FRIENDLY') {
+        addLog(`${contactUnder.id} IS FRIENDLY — ENGAGEMENT DENIED`, 'warn');
+        return;
+      } else if (wcs === 'HOLD') {
+        addLog(`WEAPONS HOLD — ENGAGEMENT DENIED`, 'warn');
+        return;
+      } else if (canEngage(interceptor, contactUnder)) {
+        // WCS allows engagement
         interceptor.state = 'AIRBORNE';
         interceptor.target = contactUnder;
         interceptor.idTarget = null;
         interceptor.capPoint = null;
-        addLog(`${interceptor.id} RETASKED → ${contactUnder.id}`, 'alert');
-      } else if (contactUnder.allegiance === 'FRIENDLY') {
-        addLog(`${contactUnder.id} IS FRIENDLY — ENGAGEMENT DENIED`, 'warn');
-        return;
-      } else {
-        // Unknown — send on ID mission
+        const wcsLabel = contactUnder.allegiance === 'UNKNOWN' ? ' [WCS FREE]' : '';
+        addLog(`${interceptor.id} RETASKED → ${contactUnder.id}${wcsLabel}`, 'alert');
+      } else if (contactUnder.allegiance === 'UNKNOWN') {
+        // TIGHT + unknown — send on ID mission
         interceptor.state = 'ID_MISSION';
         interceptor.idTarget = contactUnder;
         interceptor.idProgress = 0;
         interceptor.target = null;
         interceptor.capPoint = null;
         addLog(`${interceptor.id} — VISUAL ID ON ${contactUnder.id}`, 'alert');
+      } else {
+        addLog(`WCS ${wcs} — CANNOT ENGAGE ${contactUnder.id}`, 'warn');
+        return;
       }
       state.selectedInterceptor = null;
     } else if (baseUnder) {
@@ -191,17 +225,39 @@ function handleRightClick(e) {
 // ═══════════════════════════════════════════
 
 function handleKeyCommand(e) {
+  // WCS cycling — W key
+  if (e.code === 'KeyW') {
+    if (state.selectedInterceptor && state.selectedInterceptor.state !== 'CRASHED' && state.selectedInterceptor.state !== 'READY') {
+      // Cycle per-unit WCS override
+      const i = state.selectedInterceptor;
+      const current = i.wcs || null;
+      if (!current) {
+        i.wcs = 'FREE';
+      } else {
+        const idx = WCS_CYCLE.indexOf(current);
+        const next = (idx + 1) % (WCS_CYCLE.length + 1);
+        i.wcs = next < WCS_CYCLE.length ? WCS_CYCLE[next] : null;
+      }
+      const label = i.wcs || `GLOBAL (${state.wcs})`;
+      addLog(`${i.id} WCS → ${label}`, '');
+    } else {
+      // Cycle global WCS
+      const idx = WCS_CYCLE.indexOf(state.wcs);
+      state.wcs = WCS_CYCLE[(idx + 1) % WCS_CYCLE.length];
+      addLog(`SECTOR WCS → ${state.wcs}`, 'warn');
+    }
+    return;
+  }
+
   if (!state.selectedThreat || state.selectedThreat.state !== 'ACTIVE') return;
 
   const contact = state.selectedThreat;
 
   if (e.code === 'KeyH') {
-    // Mark as HOSTILE
     if (contact.allegiance === 'HOSTILE') return;
     contact.allegiance = 'HOSTILE';
     addLog(`${contact.id} MANUALLY DESIGNATED HOSTILE`, 'alert');
   } else if (e.code === 'KeyF') {
-    // Mark as FRIENDLY
     if (contact.allegiance === 'FRIENDLY') return;
     contact.allegiance = 'FRIENDLY';
     addLog(`${contact.id} MANUALLY DESIGNATED FRIENDLY`, '');

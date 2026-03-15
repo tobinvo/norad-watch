@@ -114,6 +114,15 @@ body {
   letter-spacing: 1px;
 }
 
+.top-bar .wcs {
+  font-weight: bold;
+  font-size: 13px;
+  letter-spacing: 1px;
+  padding: 2px 8px;
+  border: 1px solid;
+  cursor: pointer;
+}
+
 .top-bar .wave {
   color: var(--green-mid);
   font-size: 12px;
@@ -466,6 +475,28 @@ body {
   font-size: 10px;
   margin-top: 12px;
   letter-spacing: 1px;
+}
+
+/* Action buttons */
+.detail-actions {
+  margin-top: 6px;
+  padding-top: 4px;
+}
+
+.rtb-btn {
+  background: transparent;
+  color: var(--yellow-warn);
+  border: 1px solid var(--yellow-warn);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 10px;
+  letter-spacing: 2px;
+  padding: 3px 12px;
+  cursor: pointer;
+}
+
+.rtb-btn:hover {
+  background: rgba(255, 204, 0, 0.15);
+  text-shadow: 0 0 6px rgba(255, 204, 0, 0.4);
 }
 
 /* Scrollbar */
