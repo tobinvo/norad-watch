@@ -128,6 +128,20 @@ body {
   font-size: 12px;
 }
 
+.top-bar .speed {
+  font-weight: bold;
+  font-size: 13px;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  border: 1px solid var(--green-dim);
+}
+
+.top-bar .game-clock {
+  color: var(--green-mid);
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
 .top-bar .clock {
   color: var(--green-bright);
   text-shadow: 0 0 6px rgba(0, 255, 65, 0.3);

@@ -22,6 +22,10 @@ export const BLIP_FADE_TIME = 3500; // ms after sweep passes (real-time)
 // Game time multiplier: 1 real second = GAME_SPEED game-seconds
 export const GAME_SPEED = 30;
 
+// Time compression steps
+export const TIME_STEPS = [1, 2, 4, 8, 16];
+export const AUTO_PAUSE_COOLDOWN = 2000; // real-ms between auto-pauses
+
 // ═══════════════════════════════════════════
 // GAME BALANCE (all distances in nautical miles)
 // ═══════════════════════════════════════════

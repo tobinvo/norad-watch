@@ -1,4 +1,4 @@
-import { GAME_SPEED } from './constants.js';
+import { GAME_SPEED, AUTO_PAUSE_COOLDOWN, TIME_STEPS } from './constants.js';
 import { state } from './state.js';
 import { SECTOR, toCanvas, updateCanvasSize } from './sector.js';
 import { createBase, createCity, moveContact, moveInterceptor } from './entities.js';
@@ -88,6 +88,9 @@ function resetGame() {
   state.logEntries = [];
   state.effects = [];
   state.wcs = 'TIGHT';
+  state.timeMultiplier = 1;
+  state.lastAutoPause = 0;
+  state._prevHostileDetected = 0;
   state.paused = false;
   state.status = 'ACTIVE';
   state.threatsNeutralized = 0;
@@ -103,7 +106,16 @@ function resetGame() {
   initGame();
 }
 
-function update(gameDt) {
+function autoPause(reason, timestamp) {
+  if (state.timeMultiplier <= 1) return; // no need at 1x
+  if (timestamp - state.lastAutoPause < AUTO_PAUSE_COOLDOWN) return;
+  state.paused = true;
+  state.timeMultiplier = 1;
+  state.lastAutoPause = timestamp;
+  addLog(`■ AUTO-PAUSE: ${reason} ■`, 'warn');
+}
+
+function update(gameDt, timestamp) {
   if (state.status !== 'ACTIVE') {
     if (!scoreShown) {
       scoreShown = true;
@@ -112,6 +124,10 @@ function update(gameDt) {
     }
     return;
   }
+
+  // Track pre-update state for auto-pause detection
+  const prevWave = state.currentWave;
+  const contactCountBefore = state.contacts.filter(c => c.detected).length;
 
   // Spawn threats and civilians
   trySpawnThreat(state.gameTime);
@@ -133,16 +149,37 @@ function update(gameDt) {
 
     if (!wasBingo && interceptor.bingo) {
       addLog(`${interceptor.id} BINGO FUEL — RTB AUTHORIZED`, 'warn');
+      autoPause('BINGO FUEL', timestamp);
     }
 
     if (wasAlive && interceptor.state === 'CRASHED') {
       addLog(`${interceptor.id} FUEL EXHAUSTION — AIRCRAFT LOST`, 'alert');
+      autoPause('AIRCRAFT LOST', timestamp);
     }
   }
 
+  const prevCitiesHit = state.citiesHit;
   resolveEngagements();
   updateDefcon();
   checkWinLose();
+
+  // Auto-pause: new wave
+  if (state.currentWave > prevWave && state.currentWave > 1) {
+    autoPause('NEW WAVE INCOMING', timestamp);
+  }
+
+  // Auto-pause: new non-civilian contact detected
+  const newDetected = state.contacts.filter(c => c.detected && !c.isCivilian).length;
+  const oldDetected = state._prevHostileDetected || 0;
+  if (newDetected > oldDetected) {
+    autoPause('NEW CONTACT', timestamp);
+  }
+  state._prevHostileDetected = newDetected;
+
+  // Auto-pause: city hit
+  if (state.citiesHit > prevCitiesHit) {
+    autoPause('CITY IMPACT', timestamp);
+  }
 }
 
 function render(timestamp) {
@@ -150,10 +187,10 @@ function render(timestamp) {
   state.lastTimestamp = timestamp;
 
   if (!state.paused) {
-    sweepTime += realDt;
-    const gameDt = realDt * GAME_SPEED;
+    sweepTime += realDt * state.timeMultiplier;
+    const gameDt = realDt * GAME_SPEED * state.timeMultiplier;
     state.gameTime += gameDt;
-    update(gameDt);
+    update(gameDt, timestamp);
   }
 
   const w = canvas.width / window.devicePixelRatio;
@@ -201,5 +238,20 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.code === 'KeyR' && (state.status === 'WON' || state.status === 'LOST')) {
     resetGame();
+  }
+  // Time compression: [ slower, ] faster
+  if (e.code === 'BracketLeft') {
+    const idx = TIME_STEPS.indexOf(state.timeMultiplier);
+    if (idx > 0) {
+      state.timeMultiplier = TIME_STEPS[idx - 1];
+      addLog(`TIME COMPRESSION: ${state.timeMultiplier}x`, '');
+    }
+  }
+  if (e.code === 'BracketRight') {
+    const idx = TIME_STEPS.indexOf(state.timeMultiplier);
+    if (idx < TIME_STEPS.length - 1) {
+      state.timeMultiplier = TIME_STEPS[idx + 1];
+      addLog(`TIME COMPRESSION: ${state.timeMultiplier}x`, '');
+    }
   }
 });

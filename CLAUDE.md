@@ -3,7 +3,7 @@
 A browser-based cold-war NORAD air defense simulation. The player manages radar contacts, scrambles interceptors, and defends North American cities against escalating waves of airborne threats. Prioritizes the "control tower" feel — managing information and making decisions, not clicking frantically.
 
 ## Project Status
-**Phase: 7 complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post: Northeast ADIZ (~500nm across), nm-based coordinate system, 3 radar sites with detection coverage, sector/prosecution boundaries, coastline map, GAME_SPEED=30 time scaling, proper knots→nm/s movement. Phase 6 added contact classification pipeline, civilian traffic, IFF. Phase 7 added Weapons Control States (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements.
+**Phase: 8 complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post. Phase 6 added IFF pipeline + civilian traffic. Phase 7 added WCS (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements. Phase 8 added time compression (1-16x), auto-pause on critical events, game clock.
 
 ## Tech Stack
 - **Vanilla JavaScript** + **HTML5 Canvas** — no frameworks, no build step
@@ -97,13 +97,16 @@ norad-watch/
 - **Phase 7:** AWACS instant classification — superior signal processing auto-classifies contacts in range
 - **Phase 7:** RTB button in interceptor detail panel
 
-### Phase 8: Time Compression & Pacing
+### Phase 8: Time Compression & Pacing ✓
 **Goal:** Real watch-station rhythm — long quiet, sudden crisis
 
-1. **Variable time acceleration** — 1x, 2x, 4x, 8x, 16x speed controls
-2. **Auto-pause on events** — New contact detected, engagement begins, aircraft bingo, city threatened. Player is forced into real-time decision windows.
-3. **Scenario clock** — Missions measured in hours of game time (e.g., "8-hour watch"). Real playtime 15-25 minutes.
-4. **Quiet stretches** — Long periods of just civilian traffic transiting. Builds tension through anticipation.
+- **Phase 8:** Variable time compression — 1x, 2x, 4x, 8x, 16x via [ ] keys
+- **Phase 8:** Speed indicator in top bar (color-coded: green=1x, yellow=2-4x, orange=8-16x)
+- **Phase 8:** Game clock — mission elapsed time displayed as HH:MM in top bar
+- **Phase 8:** Auto-pause on critical events: new contact, bingo fuel, aircraft lost, city impact, new wave
+- **Phase 8:** Auto-pause snaps speed back to 1x for real-time decision windows
+- **Phase 8:** Auto-pause cooldown (2s real-time) prevents spam
+- **Phase 8:** Sweep speed scales with time compression (radar sweeps faster at higher speeds)
 
 ### Phase 9: Realistic Air Operations
 **Goal:** Finite resources, hard choices, vulnerability windows

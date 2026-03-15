@@ -409,6 +409,29 @@ export function renderStatusBar() {
     defconEl.style.textShadow = `0 0 8px ${defconColors[state.defcon]}44`;
   }
 
+  // Speed indicator
+  const speedEl = document.getElementById('speedIndicator');
+  if (speedEl) {
+    const m = state.timeMultiplier;
+    speedEl.textContent = `${m}x`;
+    if (m > 1) {
+      speedEl.style.color = m >= 8 ? '#ff8800' : '#ffcc00';
+      speedEl.style.borderColor = m >= 8 ? '#ff8800' : '#ffcc00';
+    } else {
+      speedEl.style.color = '#00cc33';
+      speedEl.style.borderColor = '#004d14';
+    }
+  }
+
+  // Game clock (mission elapsed time)
+  const clockEl = document.getElementById('gameClock');
+  if (clockEl) {
+    const totalGameSec = state.gameTime / 1000;
+    const hours = Math.floor(totalGameSec / 3600);
+    const minutes = Math.floor((totalGameSec % 3600) / 60);
+    clockEl.textContent = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  }
+
   // WCS indicator
   const wcsEl = document.getElementById('wcsIndicator');
   if (wcsEl) {

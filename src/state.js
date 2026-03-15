@@ -51,6 +51,10 @@ export const state = {
   // Visual effects
   effects: [],
 
+  // Time compression
+  timeMultiplier: 1,       // 1x, 2x, 4x, 8x, 16x
+  lastAutoPause: 0,        // real timestamp of last auto-pause (cooldown)
+
   // Weapons Control State
   wcs: 'TIGHT',  // Global: 'FREE', 'TIGHT', 'HOLD'
 
