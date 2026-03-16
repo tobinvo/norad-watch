@@ -28,6 +28,7 @@ export const state = {
   currentWave: 0,
   waveSpawnIndex: 0,
   waveActive: false,
+  waveAnnounced: false,
   waveBreakUntil: 0,
   wavesComplete: false,
 

@@ -102,5 +102,5 @@ function startNextWave(gameTime) {
   state.waveActive = true;
   state.waveSpawnIndex = 0;
   state.lastSpawnTime = gameTime;
-  addLog(`■ WAVE ${state.currentWave}/${WAVES.length} INCOMING ■`, 'alert');
+  state.waveAnnounced = false;
 }

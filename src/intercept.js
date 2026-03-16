@@ -2,8 +2,15 @@ import { CITY_IMPACT_RADIUS, THREAT_TYPES, MISSILE_TYPES, PATROL_DETECT_RANGE, A
 import { state } from './state.js';
 import { addLog } from './hud.js';
 import { isInProsecutionZone } from './sector.js';
-import { createMissile, hasRadarTrack, getActiveAWACS, clearMission } from './entities.js';
+import { createMissile, hasRadarTrack, getActiveAWACS, clearMission, getCurrentWeapon, totalWeapons } from './entities.js';
 import { getEffectiveWCS } from './input.js';
+
+function weaponSummary(interceptor) {
+  const parts = [];
+  if (interceptor.weapons > 0) parts.push(`${interceptor.weapons}x ${interceptor.spec.weaponType}`);
+  if (interceptor.secondaryWeapons > 0) parts.push(`${interceptor.secondaryWeapons}x ${interceptor.spec.secondaryWeaponType}`);
+  return parts.join(' + ') || 'NONE';
+}
 
 function dist(a, b) {
   const dx = a.x - b.x;
@@ -26,7 +33,7 @@ export function resolveEngagements() {
     const contact = interceptor.target;
 
     // No weapons and no missile in flight — winchester
-    if (interceptor.weapons <= 0 && !hasMissileInFlight(interceptor)) {
+    if (totalWeapons(interceptor) <= 0 && !hasMissileInFlight(interceptor)) {
       interceptor.target = null;
       interceptor.state = 'RTB';
       addLog(`${interceptor.id} WINCHESTER — NO WEAPONS — RTB`, 'warn');
@@ -36,15 +43,14 @@ export function resolveEngagements() {
     // Target already neutralized — assess
     if (contact.state !== 'ACTIVE') {
       interceptor.target = null;
-      if (interceptor.weapons > 0) {
+      if (totalWeapons(interceptor) > 0) {
         interceptor.state = 'CAP';
         if (interceptor.mission) {
-          // Return to patrol route
           interceptor.capPoint = null;
           addLog(`${interceptor.id} TARGET DOWN — RESUMING ${interceptor.mission.name}`, '');
         } else {
           interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
-          addLog(`${interceptor.id} TARGET DOWN — ${interceptor.weapons}x ${interceptor.spec.weaponType} REMAINING — AWAITING ORDERS`, '');
+          addLog(`${interceptor.id} TARGET DOWN — ${weaponSummary(interceptor)} REMAINING — AWAITING ORDERS`, '');
         }
       } else {
         interceptor.state = 'RTB';
@@ -65,15 +71,21 @@ export function resolveEngagements() {
     }
 
     // Check range, radar track, and fire if no missile already in flight
-    const d = dist(interceptor, contact);
-    const range = interceptor.spec.weaponsRange;
-    if (d <= range && !hasMissileInFlight(interceptor) && hasRadarTrack(interceptor, contact)) {
-      const mSpec = MISSILE_TYPES[interceptor.spec.weaponType];
-      const missile = createMissile(interceptor, contact);
-      state.missiles.push(missile);
-      interceptor.weapons--;
-      state.missilesExpended++;
-      addLog(`${interceptor.id} ${mSpec.callsign} — MISSILE AWAY ON ${contact.id}`, 'alert');
+    const weapon = getCurrentWeapon(interceptor);
+    if (weapon && !hasMissileInFlight(interceptor) && hasRadarTrack(interceptor, contact)) {
+      const d = dist(interceptor, contact);
+      if (d <= weapon.range) {
+        const mSpec = MISSILE_TYPES[weapon.type];
+        const missile = createMissile(interceptor, contact, weapon.type, weapon.range);
+        state.missiles.push(missile);
+        if (weapon.isPrimary) {
+          interceptor.weapons--;
+        } else {
+          interceptor.secondaryWeapons--;
+        }
+        state.missilesExpended++;
+        addLog(`${interceptor.id} ${mSpec.callsign} — MISSILE AWAY ON ${contact.id}`, 'alert');
+      }
     }
   }
 
@@ -86,14 +98,14 @@ export function resolveEngagements() {
     // Target was destroyed (by our missile or someone else's)
     if (contact.state === 'NEUTRALIZED') {
       interceptor.target = null;
-      if (interceptor.weapons > 0) {
+      if (totalWeapons(interceptor) > 0) {
         interceptor.state = 'CAP';
         if (interceptor.mission) {
           interceptor.capPoint = null;
           addLog(`${interceptor.id} SPLASH — RESUMING ${interceptor.mission.name}`, '');
         } else {
           interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
-          addLog(`${interceptor.id} SPLASH — ${interceptor.weapons}x ${interceptor.spec.weaponType} REMAINING — AWAITING ORDERS`, '');
+          addLog(`${interceptor.id} SPLASH — ${weaponSummary(interceptor)} REMAINING — AWAITING ORDERS`, '');
         }
       } else {
         interceptor.state = 'RTB';
@@ -103,7 +115,7 @@ export function resolveEngagements() {
     }
 
     // Target still active but we're out of ammo and no missile in flight
-    if (interceptor.weapons <= 0 && !hasMissileInFlight(interceptor)) {
+    if (totalWeapons(interceptor) <= 0 && !hasMissileInFlight(interceptor)) {
       interceptor.target = null;
       interceptor.state = 'RTB';
       addLog(`${interceptor.id} WINCHESTER — NO WEAPONS — RTB`, 'warn');
@@ -213,8 +225,7 @@ export function resolveEngagements() {
 export function updatePatrolEngagement() {
   for (const interceptor of state.interceptors) {
     if (interceptor.state !== 'CAP') continue;
-    if (!interceptor.mission) continue;
-    if (interceptor.weapons <= 0) continue;
+    if (totalWeapons(interceptor) <= 0) continue;
     if (interceptor.type === 'KC-135' || interceptor.type === 'E-3A') continue;
 
     const wcs = getEffectiveWCS(interceptor);

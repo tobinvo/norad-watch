@@ -260,7 +260,9 @@ export function renderSelectionDetail() {
     const stateLabel = i.state === 'ID_MISSION' ? 'ID MISSION' : i.state === 'REFUELING' ? 'REFUELING' : isPatrol ? 'PATROL' : i.state;
     html += `<div class="detail-row"><span class="detail-label">STATE</span><span class="detail-value">${stateLabel}</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">FUEL</span><span class="detail-value ${fuelPct <= 25 ? 'hostile' : ''}">${fuelPct}%</span></div>`;
-    html += `<div class="detail-row"><span class="detail-label">WEAPONS</span><span class="detail-value">${i.weapons}x ${i.spec.weaponType || 'NONE'}</span></div>`;
+    let weaponStr = i.spec.weaponType ? `${i.weapons}x ${i.spec.weaponType}` : 'NONE';
+    if (i.spec.secondaryWeaponType) weaponStr += ` + ${i.secondaryWeapons}x ${i.spec.secondaryWeaponType}`;
+    html += `<div class="detail-row"><span class="detail-label">WEAPONS</span><span class="detail-value">${weaponStr}</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">SORTIES</span><span class="detail-value">${i.sorties}/${i.spec.maxSorties}</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">BASE</span><span class="detail-value">${i.base.name}</span></div>`;
 
@@ -347,7 +349,8 @@ export function renderSelectionDetail() {
     for (const i of ready) {
       const isSelected = state.selectedReadyInterceptor === i;
       const selClass = isSelected ? ' aircraft-selected' : '';
-      const weaponInfo = i.spec.weaponType ? `${i.weapons}x ${i.spec.weaponType}` : 'NO WEAPONS';
+      let weaponInfo = i.spec.weaponType ? `${i.weapons}x ${i.spec.weaponType}` : 'NO WEAPONS';
+      if (i.spec.secondaryWeaponType) weaponInfo += `+${i.secondaryWeapons}${i.spec.secondaryWeaponType.charAt(0)}`;
       const sortieInfo = `S${i.sorties}/${i.spec.maxSorties}`;
       html += `<div class="aircraft-row${selClass}" data-interceptor-id="${i.id}">`;
       html += `<span class="detail-label">${i.id}</span>`;
@@ -396,7 +399,9 @@ export function renderSelectionDetail() {
       html += `<div class="detail-row"><span class="detail-label">RNG</span><span class="detail-value">${ratingBar(s.rangeRating)}</span></div>`;
       html += `<div class="detail-row"><span class="detail-label">END</span><span class="detail-value">${ratingBar(s.enduranceRating)}</span></div>`;
       if (s.weaponType) {
-        html += `<div class="detail-row"><span class="detail-label">ARM</span><span class="detail-value">${sri.weapons}x ${s.weaponType}</span></div>`;
+        let armStr = `${sri.weapons}x ${s.weaponType}`;
+        if (s.secondaryWeaponType) armStr += ` + ${sri.secondaryWeapons}x ${s.secondaryWeaponType}`;
+        html += `<div class="detail-row"><span class="detail-label">ARM</span><span class="detail-value">${armStr}</span></div>`;
       }
       html += `<div class="detail-row"><span class="detail-label">SRT</span><span class="detail-value">${sri.sorties}/${s.maxSorties} (${Math.round(s.turnaroundTime / 60)}min turn)</span></div>`;
       html += `<div class="aircraft-desc">${s.desc}</div>`;

@@ -11,6 +11,7 @@ import { addLog } from './hud.js';
 import { getActiveAWACS, getClassCategory, hasDataLink, isInRadarCone } from './entities.js';
 import { toCanvas, nmToPixels, SECTOR } from './sector.js';
 import { ktsToMph } from './units.js';
+import { WAVES } from '../data/scenarios.js';
 
 // ═══════════════════════════════════════════
 // RANGE RINGS
@@ -398,6 +399,13 @@ export function drawContacts(ctx, sweepTime) {
     if (!contact.detected) {
       contact.detected = true;
       contact.sweepsSeen = 1;
+
+      // Announce wave on first hostile detection
+      if (!contact.isCivilian && !state.waveAnnounced && state.currentWave > 0) {
+        state.waveAnnounced = true;
+        addLog(`■ WAVE ${state.currentWave}/${WAVES.length} INCOMING ■`, 'alert');
+      }
+
       addLog(`NEW CONTACT ${contact.id} — HDG ${contact.hdgDeg} SPD ${ktsToMph(contact.speed)} ALT ${contact.altitude}`, 'warn');
 
       // IFF check on first detection

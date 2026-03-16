@@ -169,9 +169,19 @@ norad-watch/
 2. **Coordinated strikes** — Multiple threats arrive simultaneously from different axes.
 
 ### Phase 12A: Sound Design
-**Goal:** Biggest atmosphere impact
+**Goal:** Biggest atmosphere impact. All procedural via Web Audio API — no external files.
 
-1. **Sound design** — Web Audio API: radar sweep tone, detection ping, alert klaxon, radio chatter fragments, engagement sounds. No external files.
+1. **Radar sweep tick** — subtle click/ping each time sweep passes 12 o'clock, anchors the rhythm
+2. **Detection ping** — sharp tone when a new contact first appears (higher pitch = closer to cities)
+3. **Alert klaxon** — escalating two-tone alarm on THREAT classification or city impact imminent
+4. **Missile launch** — radio call "FOX THREE" / "FOX ONE — GENIE" (synth speech or tone burst) on player missile fire
+5. **Splash / miss** — confirmation tone on kill, flat buzz on miss
+6. **Engagement warning** — rapid beeping when ARM is inbound on a radar site
+7. **EMCON shift** — distinct tone for each level change (click up for SILENT, click down for ACTIVE)
+8. **Ambient hum** — low continuous tone (CRT/equipment room ambiance), volume tied to time compression
+9. **Radio chatter fragments** — short procedural noise bursts on scramble, RTB, bingo fuel — suggests a busy freq
+10. **Nuclear detonation** — deep rumble + white noise burst for Genie hits
+11. **Master volume + mute toggle** — M key mutes, volume slider in HUD
 
 ### Phase 12B: Difficulty & Replayability
 **Goal:** Accessible to new players, challenging for veterans

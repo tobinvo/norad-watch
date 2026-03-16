@@ -141,13 +141,16 @@ export const AIRCRAFT_TYPES = {
     name: 'F-15A Eagle',
     callsign: 'EAGLE',
     role: 'AIR SUPERIORITY',
-    desc: 'Fast, heavy loadout. Best radar and weapons. Burns fuel quickly.',
+    desc: 'Fast, heavy loadout. 4 Sparrows (must hold lock) + 4 Sidewinders. Best radar. Burns fuel.',
     speed: 900,
     fuelCapacity: 100,
     fuelBurnRate: 0.04,     // ~83s real endurance, 300nm round trip
     weapons: 4,
-    weaponType: 'AMRAAM',
-    weaponsRange: 25,
+    weaponType: 'SPARROW',
+    weaponsRange: 20,
+    secondaryWeapons: 4,
+    secondaryWeaponType: 'SIDEWINDER',
+    secondaryWeaponsRange: 10,
     radarRange: 60,                   // nm — AN/APG-63
     radarCone: Math.PI / 3,           // 60° half-angle = 120° total
     radarClassifyTime: 5,             // game-seconds to classify a contact in radar cone
@@ -161,13 +164,16 @@ export const AIRCRAFT_TYPES = {
     name: 'F-16C Falcon',
     callsign: 'VIPER',
     role: 'MULTIROLE',
-    desc: 'Fuel-efficient with good endurance. Adequate radar. Reliable workhorse.',
+    desc: 'Fire-and-forget AMRAAMs + Sidewinder backup. Good endurance. Reliable workhorse.',
     speed: 780,
     fuelCapacity: 100,
     fuelBurnRate: 0.028,    // ~119s real endurance, 390nm round trip
-    weapons: 3,
+    weapons: 2,
     weaponType: 'AMRAAM',
     weaponsRange: 25,
+    secondaryWeapons: 4,
+    secondaryWeaponType: 'SIDEWINDER',
+    secondaryWeaponsRange: 10,
     radarRange: 40,                   // nm — AN/APG-68
     radarCone: Math.PI / 4,           // 45° half-angle = 90° total
     radarClassifyTime: 8,             // game-seconds to classify a contact in radar cone
@@ -181,13 +187,16 @@ export const AIRCRAFT_TYPES = {
     name: 'F-106A Delta Dart',
     callsign: 'DART',
     role: 'INTERCEPTOR',
-    desc: 'Fast with nuclear Genie rocket — one shot, near-guaranteed kill. Fire control computes lead. Old radar.',
+    desc: 'Fast interceptor. 1 nuclear Genie + 2 IR Falcons. Fire control computes lead. Old radar.',
     speed: 850,
     fuelCapacity: 100,
     fuelBurnRate: 0.065,    // ~51s real endurance, 177nm round trip
     weapons: 1,
     weaponType: 'GENIE',
     weaponsRange: 8,
+    secondaryWeapons: 2,
+    secondaryWeaponType: 'FALCON',
+    secondaryWeaponsRange: 5,
     radarRange: 30,                   // nm — MA-1 (old tech)
     radarCone: Math.PI / 6,           // 30° half-angle = 60° total
     radarClassifyTime: 12,            // game-seconds to classify (old radar, slow)
@@ -242,24 +251,51 @@ export const AIRCRAFT_TYPES = {
 // ═══════════════════════════════════════════
 
 export const MISSILE_TYPES = {
+  SPARROW: {
+    name: 'AIM-7 Sparrow',
+    speed: 1100,          // ~Mach 3.5
+    guidance: 'SARH',     // semi-active radar homing — shooter must maintain radar lock throughout
+    basePk: 0.55,
+    callsign: 'FOX ONE',
+    seekerRange: 10,      // nm — seeker tracks reflected radar energy
+    seekerCone: Math.PI / 5, // 36° half-angle
+  },
   AMRAAM: {
     name: 'AIM-120 AMRAAM',
-    speed: 1200,          // visual speed (slower than real Mach 4 for playability — ~2.5s flight at 25nm)
-    guidance: 'ACTIVE',   // mid-course from shooter, terminal active seeker
+    speed: 1200,          // ~Mach 4
+    guidance: 'ACTIVE',   // mid-course from shooter, terminal active seeker — fire and forget
     basePk: 0.70,
     callsign: 'FOX THREE',
     seekerRange: 15,      // nm — seeker activates for terminal guidance
-    seekerCone: Math.PI / 6, // 30° half-angle = 60° total seeker FOV
+    seekerCone: Math.PI / 6, // 30° half-angle
+  },
+  SIDEWINDER: {
+    name: 'AIM-9 Sidewinder',
+    speed: 1000,          // ~Mach 2.5
+    guidance: 'IR',       // infrared heat-seeking — no radar lock needed
+    basePk: 0.65,
+    callsign: 'FOX TWO',
+    seekerRange: 8,       // nm — IR seeker acquisition
+    seekerCone: Math.PI / 4, // 45° half-angle (wide IR FOV)
   },
   GENIE: {
     name: 'AIR-2 Genie',
-    speed: 800,           // visual speed (slower than real Mach 3 for playability — ~1.2s flight at 8nm)
+    speed: 800,           // ~Mach 3 (slower visual speed for playability)
     guidance: 'UNGUIDED', // fixed bearing from launch, nuclear detonation by proximity
     basePk: 0.95,         // nuclear warhead
     callsign: 'FOX ONE — GENIE',
-    seekerRange: 0,       // no seeker
+    seekerRange: 0,
     seekerCone: 0,
-    detonationRadius: 3,  // nm — nuclear proximity detonation (much larger than conventional 1.5nm)
+    detonationRadius: 3,  // nm — nuclear proximity detonation
+  },
+  FALCON: {
+    name: 'AIM-4 Falcon',
+    speed: 1000,          // ~Mach 3
+    guidance: 'IR',       // infrared heat-seeking — historically unreliable
+    basePk: 0.40,
+    callsign: 'FOX TWO — FALCON',
+    seekerRange: 5,       // nm — IR seeker acquisition
+    seekerCone: Math.PI / 4, // 45° half-angle
   },
 };
 

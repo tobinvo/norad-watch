@@ -214,7 +214,7 @@ function handleRightClick(e) {
     if (contactUnder) {
       const wcs = getEffectiveWCS(picked);
 
-      if (picked.spec.weapons === 0) {
+      if (picked.spec.weapons === 0 && !picked.spec.secondaryWeaponType) {
         // AWACS — orbit near contact
         picked.state = 'CAP';
         picked.capPoint = { x: contactUnder.x, y: contactUnder.y };

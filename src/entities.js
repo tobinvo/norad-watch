@@ -55,6 +55,7 @@ export function createInterceptor(base, typeName) {
     fuel: spec.fuelCapacity,
     fuelMax: spec.fuelCapacity,
     weapons: spec.weapons,
+    secondaryWeapons: spec.secondaryWeapons || 0,
     bingo: false,
     sorties: 0,          // completed sorties (max = spec.maxSorties)
     turnaroundUntil: 0,  // gameTime (ms) when turnaround completes
@@ -258,11 +259,31 @@ export function isInRadarCone(interceptor, contact) {
   return Math.abs(aDiff) <= spec.radarCone;
 }
 
+// Get current weapon info — primary first, then secondary
+export function getCurrentWeapon(interceptor) {
+  const spec = interceptor.spec;
+  if (interceptor.weapons > 0) {
+    return { type: spec.weaponType, range: spec.weaponsRange, isPrimary: true };
+  }
+  if (interceptor.secondaryWeapons > 0 && spec.secondaryWeaponType) {
+    return { type: spec.secondaryWeaponType, range: spec.secondaryWeaponsRange, isPrimary: false };
+  }
+  return null;
+}
+
+// Total weapons remaining (primary + secondary)
+export function totalWeapons(interceptor) {
+  return interceptor.weapons + (interceptor.secondaryWeapons || 0);
+}
+
 // Can this interceptor fire on this contact? (needs radar track)
 export function hasRadarTrack(interceptor, contact) {
-  const spec = AIRCRAFT_TYPES[interceptor.type];
-  // Genie doesn't need radar lock (unguided nuclear)
-  if (spec.weaponType === 'GENIE') return true;
+  const weapon = getCurrentWeapon(interceptor);
+  if (!weapon) return false;
+  const mSpec = MISSILE_TYPES[weapon.type];
+  // Unguided and IR don't need radar lock
+  if (mSpec.guidance === 'UNGUIDED' || mSpec.guidance === 'IR') return true;
+  // SARH and ACTIVE need radar lock (target in radar cone)
   return isInRadarCone(interceptor, contact);
 }
 
@@ -429,6 +450,7 @@ export function moveInterceptor(interceptor, dSec) {
       interceptor.state = 'READY';
       interceptor.fuel = interceptor.fuelMax;
       interceptor.weapons = interceptor.spec.weapons;
+      interceptor.secondaryWeapons = interceptor.spec.secondaryWeapons || 0;
       addLog(`${interceptor.id} TURNAROUND COMPLETE — READY`, '');
     }
     return;
@@ -484,6 +506,13 @@ export function moveInterceptor(interceptor, dSec) {
 
   if (interceptor.state === 'AIRBORNE' && interceptor.target) {
     const t = interceptor.target;
+    // Target destroyed — revert to CAP at current position
+    if (t.state !== 'ACTIVE') {
+      interceptor.target = null;
+      interceptor.state = 'CAP';
+      interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
+      return;
+    }
     const ip = computeInterceptPoint(interceptor, t);
     targetX = ip.x;
     targetY = ip.y;
@@ -509,6 +538,11 @@ export function moveInterceptor(interceptor, dSec) {
   } else if (interceptor.state === 'RTB') {
     targetX = interceptor.base.x;
     targetY = interceptor.base.y;
+  } else if (interceptor.state === 'AIRBORNE' && !interceptor.target) {
+    // Lost target — revert to CAP
+    interceptor.state = 'CAP';
+    interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
+    return;
   } else {
     return;
   }
@@ -662,7 +696,7 @@ function completeIdentification(interceptor) {
   interceptor.idProgress = 0;
 
   // Hostile + has weapons → auto-engage
-  if (contact.allegiance === 'HOSTILE' && interceptor.weapons > 0) {
+  if (contact.allegiance === 'HOSTILE' && (interceptor.weapons > 0 || interceptor.secondaryWeapons > 0)) {
     interceptor.state = 'AIRBORNE';
     interceptor.target = contact;
     addLog(`${interceptor.id} ENGAGING ${contact.id}`, 'alert');
@@ -684,23 +718,31 @@ function distXY(a, b) {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-export function createMissile(interceptor, contact) {
+export function createMissile(interceptor, contact, weaponType, weaponRange) {
   const num = state.nextMissileNum++;
-  const weaponType = interceptor.spec.weaponType;
   const mSpec = MISSILE_TYPES[weaponType];
 
   // Lead calculation — predict where target will be at intercept time
   let heading;
   if (mSpec.guidance === 'UNGUIDED') {
-    // Compute lead angle for unguided weapons (fire control computer)
+    // Iterative fire control solution for unguided weapons
     const dx = contact.x - interceptor.x;
     const dy = contact.y - interceptor.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     const mslSpeed = mSpec.speed / 3600; // nm/s
-    const flightTime = dist / mslSpeed;
     const tgtSpeed = contact.speed / 3600;
-    const predictX = contact.x + Math.cos(contact.heading) * tgtSpeed * flightTime;
-    const predictY = contact.y + Math.sin(contact.heading) * tgtSpeed * flightTime;
+
+    // Iterative refinement — 3 passes to converge on intercept point
+    let timeEst = dist / mslSpeed;
+    for (let i = 0; i < 3; i++) {
+      const predX = contact.x + Math.cos(contact.heading) * tgtSpeed * timeEst;
+      const predY = contact.y + Math.sin(contact.heading) * tgtSpeed * timeEst;
+      const predDist = Math.sqrt((predX - interceptor.x) ** 2 + (predY - interceptor.y) ** 2);
+      timeEst = predDist / mslSpeed;
+    }
+
+    const predictX = contact.x + Math.cos(contact.heading) * tgtSpeed * timeEst;
+    const predictY = contact.y + Math.sin(contact.heading) * tgtSpeed * timeEst;
     heading = Math.atan2(predictY - interceptor.y, predictX - interceptor.x);
   } else {
     heading = Math.atan2(contact.y - interceptor.y, contact.x - interceptor.x);
@@ -717,7 +759,7 @@ export function createMissile(interceptor, contact) {
     target: contact,
     shooter: interceptor,
     launchRange: distXY(interceptor, contact),
-    maxRange: interceptor.spec.weaponsRange,
+    maxRange: weaponRange,
     launchTime: state.gameTime,
     state: 'FLIGHT',        // FLIGHT | HIT | MISS | EXPIRED
     resolveTime: 0,
@@ -776,6 +818,48 @@ export function moveMissile(missile, dSec) {
         missile.heading = Math.atan2(lkp.y - missile.y, lkp.x - missile.x);
       }
     }
+  } else if (missile.guidance === 'SARH') {
+    // Semi-active radar homing — shooter must illuminate target for entire flight
+    const tdx = target.x - missile.x;
+    const tdy = target.y - missile.y;
+
+    // Check if shooter is still illuminating the target
+    updateMidcourse(missile);
+    if (missile.midcourseActive) {
+      // Shooter has lock — missile tracks reflected energy
+      missile.heading = Math.atan2(tdy, tdx);
+      missile.lastKnownTargetPos = { x: target.x, y: target.y };
+    } else {
+      // Shooter lost lock — SARH missile goes blind immediately (no terminal seeker)
+      missile.state = 'MISS';
+      missile.resolveTime = state.gameTime;
+      state.missilesMissed++;
+      addLog(`${missile.id} SPARROW LOST ILLUMINATION — MISS`, 'warn');
+      return;
+    }
+  } else if (missile.guidance === 'IR') {
+    // IR heat-seeking — continuous tracking, no mid-course phase
+    const tdx = target.x - missile.x;
+    const tdy = target.y - missile.y;
+    const distToTarget = Math.sqrt(tdx * tdx + tdy * tdy);
+    const mSpec = MISSILE_TYPES[missile.type];
+
+    if (mSpec.seekerRange && distToTarget <= mSpec.seekerRange) {
+      const angleToTarget = Math.atan2(tdy, tdx);
+      const aDiff = normalizeAngle(angleToTarget - missile.heading);
+      if (Math.abs(aDiff) <= mSpec.seekerCone) {
+        missile.heading = angleToTarget;
+      } else {
+        missile.state = 'MISS';
+        missile.resolveTime = state.gameTime;
+        state.missilesMissed++;
+        addLog(`${missile.id} IR SEEKER LOST — ${target.id} EVADED`, 'warn');
+        return;
+      }
+    } else {
+      // Beyond seeker range — fly straight (will acquire when closer)
+      missile.heading = Math.atan2(tdy, tdx);
+    }
   }
   // UNGUIDED — heading stays fixed from launch
 
@@ -793,12 +877,10 @@ export function moveMissile(missile, dSec) {
     return;
   }
 
-  // Timeout — missile flew beyond 1.5x max range from launch point without arriving
-  const distFromLaunch = Math.sqrt(
-    (missile.x - missile.shooter.x) ** 2 + (missile.y - missile.shooter.y) ** 2
-  );
-  // Use a generous timeout based on flight time at missile speed
-  const maxFlightSec = (missile.maxRange * 2) / nmPerSec;
+  // Timeout — generous time limit based on weapon type
+  // Unguided weapons get extra time (fire control lead may require longer flight)
+  const timeoutMult = missile.guidance === 'UNGUIDED' ? 4 : 2;
+  const maxFlightSec = (missile.maxRange * timeoutMult) / nmPerSec;
   const flightElapsed = (state.gameTime - missile.launchTime) / 1000;
   if (flightElapsed > maxFlightSec) {
     missile.state = 'MISS';
