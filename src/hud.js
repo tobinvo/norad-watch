@@ -95,6 +95,10 @@ export function renderContacts() {
     if (isActive && !contact.isCivilian && THREAT_TYPES[contact.type]?.jamming) {
       statusText = 'ECM ' + statusText;
     }
+    if (isActive && contact.formationId) {
+      const roleTag = contact.formationRole === 'LEAD' ? 'LDR' : 'ESC';
+      statusText = roleTag + ' ' + statusText;
+    }
 
     tr.innerHTML = `
       <td>${contact.id}</td>
@@ -228,6 +232,21 @@ export function renderSelectionDetail() {
       html += `<div class="detail-row"><span class="detail-label">ETA</span><span class="detail-value hostile">${etaRealSec}s</span></div>`;
     }
 
+    // Formation info
+    if (t.formationRole === 'LEAD' && t.escorts) {
+      const activeEsc = t.escorts.filter(e => e.state === 'ACTIVE');
+      if (activeEsc.length > 0) {
+        html += `<div class="detail-row"><span class="detail-label">FORMATION</span><span class="detail-value" style="color: #ff8800">${t.formationId}</span></div>`;
+        html += `<div class="detail-row"><span class="detail-label">ESCORTS</span><span class="detail-value" style="color: #ff8800">${activeEsc.length} ACTIVE — ENGAGE ESCORTS FIRST</span></div>`;
+      } else if (t.escorts.length > 0) {
+        html += `<div class="detail-row"><span class="detail-label">FORMATION</span><span class="detail-value" style="color: #555">${t.formationId} — ESCORTS DOWN</span></div>`;
+      }
+    } else if (t.formationRole === 'ESCORT' && t.formationLead) {
+      const lead = t.formationLead;
+      html += `<div class="detail-row"><span class="detail-label">FORMATION</span><span class="detail-value" style="color: #ff8800">${t.formationId} — ESCORT</span></div>`;
+      html += `<div class="detail-row"><span class="detail-label">LEAD</span><span class="detail-value" style="color: #ff8800">${lead.id} ${lead.state === 'ACTIVE' ? lead.typeLabel : 'DOWN'}</span></div>`;
+    }
+
     if (assignedInterceptors.length > 0) {
       html += `<div class="detail-assigned">ASSIGNED: ${assignedInterceptors.map(i => {
         const mission = i.state === 'ID_MISSION' ? ' (ID)' : '';
@@ -329,8 +348,15 @@ export function renderSelectionDetail() {
     }
 
     if (!['RTB', 'CRASHED', 'TURNAROUND', 'MAINTENANCE'].includes(i.state)) {
+      // Check if a tanker is available for the REFUEL button
+      const canRefuel = i.type !== 'KC-135' && i.type !== 'E-3A' && i.state !== 'REFUELING'
+        && state.interceptors.some(t => t.type === 'KC-135' && t.state === 'CAP');
       html += `<div class="detail-assigned" style="color: var(--yellow-warn)">R-CLICK: ENGAGE/ID/RTB | SHIFT+R: WAYPOINT | W = WCS</div>`;
-      html += `<div class="detail-actions"><button class="rtb-btn" data-interceptor-id="${i.id}">RTB</button></div>`;
+      html += `<div class="detail-actions"><button class="rtb-btn" data-interceptor-id="${i.id}">RTB</button>`;
+      if (canRefuel) {
+        html += `<button class="refuel-btn" data-interceptor-id="${i.id}">REFUEL</button>`;
+      }
+      html += `</div>`;
     }
 
     el.innerHTML = html;
@@ -523,6 +549,56 @@ export function initHud() {
     interceptor.preDivertCapPoint = null;
     clearMissionHud(interceptor);
     addLog(`${interceptor.id} — RTB ORDERED`, '');
+    state.selectedInterceptor = null;
+  });
+
+  // REFUEL button — divert to nearest on-station tanker
+  detailEl.addEventListener('mousedown', (e) => {
+    const btn = e.target.closest('.refuel-btn');
+    if (!btn) return;
+    e.stopPropagation();
+    const interceptor = state.selectedInterceptor;
+    if (!interceptor || ['RTB', 'CRASHED', 'TURNAROUND', 'MAINTENANCE', 'REFUELING'].includes(interceptor.state)) return;
+    if (interceptor.type === 'KC-135' || interceptor.type === 'E-3A') return;
+
+    // Find nearest on-station tanker
+    const ARRIVAL = 3;
+    let bestTanker = null;
+    let bestDist = Infinity;
+    for (const t of state.interceptors) {
+      if (t.type !== 'KC-135' || t.state !== 'CAP') continue;
+      if (!t.capPoint) continue;
+      const tdx = t.x - t.capPoint.x;
+      const tdy = t.y - t.capPoint.y;
+      if (Math.sqrt(tdx * tdx + tdy * tdy) > ARRIVAL) continue;
+      const dx = t.x - interceptor.x;
+      const dy = t.y - interceptor.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < bestDist) { bestTanker = t; bestDist = d; }
+    }
+
+    if (!bestTanker) {
+      addLog(`${interceptor.id} — NO TANKER ON STATION`, 'warn');
+      return;
+    }
+
+    // Check fuel to reach tanker
+    const nmPerSec = interceptor.speed / 3600;
+    const fuelNeeded = (bestDist / nmPerSec) * interceptor.spec.fuelBurnRate * 1.1;
+    if (interceptor.fuel < fuelNeeded) {
+      addLog(`${interceptor.id} — INSUFFICIENT FUEL TO REACH TANKER`, 'warn');
+      return;
+    }
+
+    interceptor.preDivertState = interceptor.state;
+    interceptor.preDivertTarget = interceptor.target;
+    interceptor.preDivertCapPoint = interceptor.capPoint;
+    interceptor.state = 'REFUELING';
+    interceptor.refuelTanker = bestTanker;
+    interceptor.target = null;
+    interceptor.idTarget = null;
+    interceptor.capPoint = null;
+    addLog(`${interceptor.id} — DIVERTING TO TANKER ${bestTanker.id}`, '');
     state.selectedInterceptor = null;
   });
 }

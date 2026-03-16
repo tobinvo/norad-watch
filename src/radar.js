@@ -342,6 +342,12 @@ function updateBlipVisibility(contact, sweepTime) {
     }
   }
 
+  // Transponder squawk — IFF-equipped aircraft are always visible to air defense network
+  if (contact.transponder) {
+    maxAlpha = Math.max(maxAlpha, 0.7);
+    if (!contact.detected) freshSweep = true;
+  }
+
   // Count sweep passes for classification (jammed = half rate)
   if (freshSweep && contact.detected) {
     if (isJammed) {
@@ -611,6 +617,42 @@ function drawThreatShape(ctx, bx, by, size, contact, sweepTime) {
     ctx.lineTo(bx - size, by);
     ctx.closePath();
     ctx.fill();
+  }
+}
+
+// ═══════════════════════════════════════════
+// FORMATION LINES
+// ═══════════════════════════════════════════
+
+export function drawFormations(ctx) {
+  // Draw subtle connecting lines between formation lead and escorts
+  for (const contact of state.contacts) {
+    if (contact.state !== 'ACTIVE' || !contact.detected) continue;
+    if (contact.formationRole !== 'LEAD' || !contact.escorts) continue;
+
+    const alpha = state.blipVisibility[contact.id] || 0;
+    if (alpha < 0.1) continue;
+
+    const [lx, ly] = toCanvas(contact.x, contact.y);
+
+    for (const escort of contact.escorts) {
+      if (escort.state !== 'ACTIVE' || !escort.detected) continue;
+      const escortAlpha = state.blipVisibility[escort.id] || 0;
+      if (escortAlpha < 0.1) continue;
+
+      const [ex, ey] = toCanvas(escort.x, escort.y);
+
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 136, 0, ${Math.min(alpha, escortAlpha) * 0.25})`;
+      ctx.lineWidth = 0.8;
+      ctx.setLineDash([3, 5]);
+      ctx.beginPath();
+      ctx.moveTo(lx, ly);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
   }
 }
 

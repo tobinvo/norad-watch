@@ -520,6 +520,23 @@ body {
   text-shadow: 0 0 6px rgba(255, 204, 0, 0.4);
 }
 
+.refuel-btn {
+  background: transparent;
+  color: #c896ff;
+  border: 1px solid #c896ff;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 10px;
+  letter-spacing: 2px;
+  padding: 3px 12px;
+  cursor: pointer;
+  margin-left: 6px;
+}
+
+.refuel-btn:hover {
+  background: rgba(200, 150, 255, 0.15);
+  text-shadow: 0 0 6px rgba(200, 150, 255, 0.4);
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: var(--bg-dark); }

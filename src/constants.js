@@ -342,6 +342,11 @@ export const JAM_POSITION_JITTER = 8;     // nm — max position error on jammed
 export const ARM_IMPACT_RANGE = 3;        // nm — ARM destroys radar site within this range
 export const ARM_SPAWN_CHANCE = 0.35;     // chance per wave 3+ bomber spawn to also spawn an ARM
 
+// Formations
+export const ESCORT_OFFSET_DISTANCE = 8;  // nm — how far escorts fly from lead
+export const ESCORT_COHESION_RANGE = 20;  // nm — escorts beyond this from lead are "broken"
+export const ESCORT_PROTECT_RANGE = 15;   // nm — interceptors within this of lead get redirected to escorts
+
 // Data link & radar
 export const DATA_LINK_RANGE = 200;        // nm from AWACS — fighters within this share sensor data
 export const FIGHTER_ORBIT_RATE = Math.PI / 4; // rads/game-sec — radar sweep rate when orbiting CAP point

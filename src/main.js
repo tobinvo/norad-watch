@@ -3,7 +3,7 @@ import { state } from './state.js';
 import { SECTOR, toCanvas, updateCanvasSize, resetView, getZoom } from './sector.js';
 import { createBase, createCity, moveContact, moveInterceptor, moveMissile, updateTankerRefueling } from './entities.js';
 import { drawMap } from './map.js';
-import { drawRangeRings, drawRadarSites, drawSweep, drawContacts, drawInterceptors, drawMissiles, drawBases, drawCities, drawEffects, drawAwacsRange, initRadarSweeps, drawMissions } from './radar.js';
+import { drawRangeRings, drawRadarSites, drawSweep, drawContacts, drawInterceptors, drawMissiles, drawBases, drawCities, drawEffects, drawAwacsRange, initRadarSweeps, drawMissions, drawFormations } from './radar.js';
 import { trySpawnThreat } from './spawner.js';
 import { initCivilianTraffic, trySpawnCivilian } from './civilians.js';
 import { resolveEngagements, checkWinLose, updatePatrolEngagement } from './intercept.js';
@@ -108,6 +108,8 @@ function resetGame() {
   state.missionDefineMode = false;
   state.missionDefineBase = null;
   state.missionDefineWaypoints = [];
+  state.nextFormationNum = 1;
+  state.waveFormationsSpawned = false;
   scoreShown = false;
   sweepTime = 0;
   resetView();
@@ -266,6 +268,7 @@ function render(timestamp) {
   drawBases(ctx);
   drawSweep(ctx, state.gameTime, sweepTime);
   drawMissions(ctx, sweepTime);
+  drawFormations(ctx);
   drawContacts(ctx, sweepTime);
   drawInterceptors(ctx, sweepTime);
   drawMissiles(ctx);

@@ -84,4 +84,8 @@ export const state = {
   missionDefineMode: false,
   missionDefineBase: null,
   missionDefineWaypoints: [],
+
+  // Formations
+  nextFormationNum: 1,
+  waveFormationsSpawned: false,
 };

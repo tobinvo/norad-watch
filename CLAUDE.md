@@ -3,7 +3,7 @@
 A browser-based cold-war NORAD air defense simulation. The player manages radar contacts, scrambles interceptors, and defends North American cities against escalating waves of airborne threats. Prioritizes the "control tower" feel — managing information and making decisions, not clicking frantically.
 
 ## Project Status
-**Phase: 11B complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post. Phase 6 added IFF pipeline + civilian traffic. Phase 7 added WCS (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements. Phase 8 added time compression (1-16x), auto-pause on critical events, game clock. Phase 9A added turnaround time, sortie limits, fuel range envelopes. Phase 9B added missiles as map entities, Pk, damage model. Phase 9C added tanker support, patrol missions (define/assign/auto-loop), ad-hoc waypoints (shift+right-click), patrol auto-engagement.
+**Phase: 11C complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post. Phase 6 added IFF pipeline + civilian traffic. Phase 7 added WCS (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements. Phase 8 added time compression (1-16x), auto-pause on critical events, game clock. Phase 9A added turnaround time, sortie limits, fuel range envelopes. Phase 9B added missiles as map entities, Pk, damage model. Phase 9C added tanker support, patrol missions (define/assign/auto-loop), ad-hoc waypoints (shift+right-click), patrol auto-engagement.
 
 ## Tech Stack
 - **Vanilla JavaScript** + **HTML5 Canvas** — no frameworks, no build step
@@ -162,11 +162,13 @@ norad-watch/
 - **Phase 11B:** EMCON tactical tension ✓ — EMCON ACTIVE = full radar but vulnerable to ARM. EMCON SILENT = safe from ARM but blind to non-emitting threats. EMCON REDUCED = middle ground. ESM still detects ARM (it emits seeker). Player must balance visibility vs survivability.
 - **Dropped:** Decoys — not authentic to cold-war NORAD context per CMANO research.
 
-### Phase 11C: Formation Tactics
+### Phase 11C: Formation Tactics ✓
 **Goal:** Layered, coordinated threats
 
-1. **Escort formations** — Fighters fly escort for bombers. Must defeat escorts to reach bombers.
-2. **Coordinated strikes** — Multiple threats arrive simultaneously from different axes.
+- **Phase 11C:** Escort formations ✓ — Fighters spawn as escorts for bombers (same edge, offset positions). Escorts match bomber speed and maintain formation offset. Interceptors auto-redirected to nearest escort when targeting an escorted bomber. Escorts break formation when lead is killed or they stray >20nm.
+- **Phase 11C:** Coordinated multi-axis strikes ✓ — Wave 5 spawns two formation packages from different edges (east + north) simultaneously. Forces player to split attention across axes.
+- **Phase 11C:** Formation visuals ✓ — Dashed amber lines connect lead to escorts on radar. Contact list shows LDR/ESC tags. Detail panel shows formation ID, escort count, and "ENGAGE ESCORTS FIRST" warning.
+- **Phase 11C:** Balanced waves ✓ — Escort fighters come from wave budget (not added on top). Total threat count stays manageable: W1 (3), W2 (4), W3 (5+ARM), W4 (6+ARM), W5 (6+ARM). Formation difficulty replaces raw volume.
 
 ### Phase 12A: Sound Design
 **Goal:** Biggest atmosphere impact. All procedural via Web Audio API — no external files.
@@ -216,7 +218,7 @@ norad-watch/
 | 10    | Aircraft radars, data links, missile seekers, EMCON, ESM, AWACS hunting | "I can't see everything" (done) |
 | 11A   | Map zoom + pan | "Let me look closer" (done) |
 | 11B   | ECM jamming, SEAD/ARM | "They're fighting back smart" (done) |
-| 11C   | Formation tactics, coordinated strikes | "They're organized" |
+| 11C   | Formation tactics, coordinated strikes | "They're organized" (done) |
 | 12A   | Sound design | "I can hear the tension" |
 | 12B   | Difficulty scaling, scenario variety | "Play it again" |
 | 12C   | Weather, debrief, comms delays, crew proficiency | Complete experience |

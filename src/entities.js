@@ -1,7 +1,8 @@
 import { AIRCRAFT_TYPES, THREAT_TYPES, ARRIVAL_THRESHOLD, ID_RANGE, ID_TIME, CIVILIAN_TYPES,
   MISSILE_TYPES, PK_TARGET_MODIFIERS, DAMAGE_DESTROY_CHANCE, MISSILE_ARRIVAL_DIST,
   TANKER_REFUEL_RANGE, TANKER_REFUEL_RATE, TANKER_REFUEL_TARGET,
-  DATA_LINK_RANGE, FIGHTER_ORBIT_RATE, MIDCOURSE_LOST_PK_MOD } from './constants.js';
+  DATA_LINK_RANGE, FIGHTER_ORBIT_RATE, MIDCOURSE_LOST_PK_MOD,
+  ESCORT_OFFSET_DISTANCE, ESCORT_COHESION_RANGE } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
 
@@ -111,6 +112,13 @@ export function createThreat(x, y, targetCity, typeName) {
     classCategory: null,       // rough category after classification
     sweepsSeen: 0,
     damaged: false,             // crippled by missile hit (speed halved)
+
+    // Formation (set by spawner for grouped threats)
+    formationId: null,          // e.g. 'STRIKE-1'
+    formationRole: null,        // 'LEAD' or 'ESCORT'
+    formationLead: null,        // reference to lead contact (escorts only)
+    escorts: null,              // array of escort contacts (lead only)
+    escortAngle: 0,             // relative angle offset from lead heading (escorts only)
   };
 
   // Fighter evasion tracking
@@ -164,6 +172,31 @@ export function createCivilian(x, y, exitX, exitY) {
     classCategory: null,
     sweepsSeen: 0,
   };
+}
+
+// ═══════════════════════════════════════════
+// FORMATION HELPERS
+// ═══════════════════════════════════════════
+
+function breakFormation(escort) {
+  // Restore original speed
+  const spec = THREAT_TYPES[escort.type];
+  if (spec && !escort.damaged) {
+    escort.speed = spec.speed;
+  }
+  // Remove from lead's escort list
+  if (escort.formationLead && escort.formationLead.escorts) {
+    const idx = escort.formationLead.escorts.indexOf(escort);
+    if (idx >= 0) escort.formationLead.escorts.splice(idx, 1);
+  }
+  escort.formationLead = null;
+  escort.formationRole = null;
+}
+
+// Get active escorts for a lead contact
+export function getActiveEscorts(contact) {
+  if (!contact.escorts) return [];
+  return contact.escorts.filter(e => e.state === 'ACTIVE');
 }
 
 // ═══════════════════════════════════════════
@@ -368,6 +401,34 @@ export function moveContact(contact, dSec) {
     } else {
       // No emitting sites — ARM goes ballistic (fixed heading)
       contact.targetSite = false;
+    }
+  }
+
+  // Escort formation movement — escorts follow their lead
+  if (contact.formationRole === 'ESCORT' && contact.formationLead) {
+    const lead = contact.formationLead;
+    if (lead.state === 'ACTIVE') {
+      const dx = lead.x - contact.x;
+      const dy = lead.y - contact.y;
+      const distToLead = Math.sqrt(dx * dx + dy * dy);
+
+      if (distToLead < ESCORT_COHESION_RANGE) {
+        // In formation — fly toward offset position relative to lead
+        const absAngle = lead.heading + contact.escortAngle;
+        const targetX = lead.x + Math.cos(absAngle) * ESCORT_OFFSET_DISTANCE;
+        const targetY = lead.y + Math.sin(absAngle) * ESCORT_OFFSET_DISTANCE;
+        contact.heading = Math.atan2(targetY - contact.y, targetX - contact.x);
+        contact.hdgDeg = Math.round(((90 - contact.heading * 180 / Math.PI) + 360) % 360);
+
+        // Match lead's speed (bomber is slower, escorts throttle down)
+        contact.speed = lead.speed;
+      } else {
+        // Too far — broken formation, revert to independent city targeting
+        breakFormation(contact);
+      }
+    } else {
+      // Lead destroyed — break formation
+      breakFormation(contact);
     }
   }
 
@@ -932,6 +993,18 @@ function resolveMissileArrival(missile) {
       missile.state = 'HIT';
       missile.resolveTime = state.gameTime;
       contact.state = 'NEUTRALIZED';
+
+      // Clean up formation references
+      if (contact.formationRole === 'ESCORT') {
+        breakFormation(contact);
+      }
+      if (contact.formationRole === 'LEAD' && contact.escorts) {
+        // Lead destroyed — all escorts break formation
+        for (const escort of [...contact.escorts]) {
+          if (escort.state === 'ACTIVE') breakFormation(escort);
+        }
+        addLog(`${contact.formationId || 'FORMATION'} LEAD DOWN — ESCORTS BREAKING`, 'warn');
+      }
 
       if (contact.isCivilian) {
         state.civiliansKilled++;

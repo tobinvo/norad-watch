@@ -1,8 +1,8 @@
-import { CITY_IMPACT_RADIUS, THREAT_TYPES, MISSILE_TYPES, PATROL_DETECT_RANGE, ARM_IMPACT_RANGE } from './constants.js';
+import { CITY_IMPACT_RADIUS, THREAT_TYPES, MISSILE_TYPES, PATROL_DETECT_RANGE, ARM_IMPACT_RANGE, ESCORT_PROTECT_RANGE } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
 import { isInProsecutionZone } from './sector.js';
-import { createMissile, hasRadarTrack, getActiveAWACS, clearMission, getCurrentWeapon, totalWeapons } from './entities.js';
+import { createMissile, hasRadarTrack, getActiveAWACS, clearMission, getCurrentWeapon, totalWeapons, getActiveEscorts } from './entities.js';
 import { getEffectiveWCS } from './input.js';
 
 function weaponSummary(interceptor) {
@@ -26,6 +26,32 @@ function hasMissileInFlight(interceptor) {
 }
 
 export function resolveEngagements() {
+  // ── Escort redirection — interceptors targeting an escorted lead get redirected ──
+  for (const interceptor of state.interceptors) {
+    if (interceptor.state !== 'AIRBORNE' || !interceptor.target) continue;
+    const contact = interceptor.target;
+    if (contact.state !== 'ACTIVE') continue;
+
+    // If targeting a formation lead with active escorts, redirect to nearest escort
+    if (contact.formationRole === 'LEAD') {
+      const activeEscorts = getActiveEscorts(contact);
+      if (activeEscorts.length > 0) {
+        let nearest = activeEscorts[0];
+        let bestDist = Infinity;
+        for (const escort of activeEscorts) {
+          const dx = escort.x - interceptor.x;
+          const dy = escort.y - interceptor.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < bestDist) { nearest = escort; bestDist = d; }
+        }
+        if (interceptor.target !== nearest) {
+          addLog(`${interceptor.id} REDIRECTED — ${contact.id} ESCORTED — ENGAGING ${nearest.id}`, 'warn');
+          interceptor.target = nearest;
+        }
+      }
+    }
+  }
+
   // ── Process interceptor missile launches ──
   for (const interceptor of state.interceptors) {
     if (interceptor.state !== 'AIRBORNE' || !interceptor.target) continue;
@@ -253,11 +279,28 @@ export function updatePatrolEngagement() {
     }
 
     if (nearest) {
+      // If target is an escorted lead, redirect to nearest escort
+      let actualTarget = nearest;
+      if (nearest.formationRole === 'LEAD') {
+        const activeEscorts = getActiveEscorts(nearest);
+        if (activeEscorts.length > 0) {
+          let best = activeEscorts[0];
+          let bestD = Infinity;
+          for (const e of activeEscorts) {
+            const dx = e.x - interceptor.x;
+            const dy = e.y - interceptor.y;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d < bestD) { best = e; bestD = d; }
+          }
+          actualTarget = best;
+        }
+      }
       interceptor.state = 'AIRBORNE';
-      interceptor.target = nearest;
+      interceptor.target = actualTarget;
       // Keep mission reference — will return to patrol after kill
-      const wcsLabel = nearest.allegiance === 'UNKNOWN' ? ' [WCS FREE]' : '';
-      addLog(`${interceptor.mission.name} ${interceptor.id} ENGAGING ${nearest.id}${wcsLabel}`, 'alert');
+      const wcsLabel = actualTarget.allegiance === 'UNKNOWN' ? ' [WCS FREE]' : '';
+      const missionLabel = interceptor.mission ? `${interceptor.mission.name} ` : '';
+      addLog(`${missionLabel}${interceptor.id} ENGAGING ${actualTarget.id}${wcsLabel}`, 'alert');
       return true; // signal auto-pause
     }
   }
