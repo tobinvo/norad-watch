@@ -103,43 +103,36 @@ export function resolveEngagements() {
   // ── Check threats reaching cities ──
   for (const contact of state.contacts) {
     if (contact.state !== 'ACTIVE') continue;
-    if (contact.isCivilian || !contact.targetCity) continue;
+    if (!contact.isCivilian && contact.targetCity) {
+      const d = dist(contact, contact.targetCity);
+      if (d <= CITY_IMPACT_RADIUS) {
+        contact.state = 'IMPACT';
+        contact.targetCity.hp = 0;
+        state.citiesHit++;
 
-    const d = dist(contact, contact.targetCity);
-    if (d <= CITY_IMPACT_RADIUS) {
-      contact.state = 'IMPACT';
-      contact.targetCity.hp = 0;
-      state.citiesHit++;
+        contact.classification = 'IDENTIFIED';
+        contact.allegiance = 'HOSTILE';
+        const typeLabel = THREAT_TYPES[contact.type]?.label || contact.type;
+        contact.classCategory = typeLabel;
+        addLog(`${contact.id} ${typeLabel} IMPACT — ${contact.targetCity.name} HIT`, 'alert');
+        state.effects.push({ x: contact.targetCity.x, y: contact.targetCity.y, type: 'impact', startTime: state.gameTime });
 
-      contact.classification = 'IDENTIFIED';
-      contact.allegiance = 'HOSTILE';
-      const typeLabel = THREAT_TYPES[contact.type]?.label || contact.type;
-      contact.classCategory = typeLabel;
-      addLog(`${contact.id} ${typeLabel} IMPACT — ${contact.targetCity.name} HIT`, 'alert');
-      state.effects.push({ x: contact.targetCity.x, y: contact.targetCity.y, type: 'impact', startTime: state.gameTime });
-
-      for (const i of state.interceptors) {
-        if (i.target === contact) {
-          i.target = null;
-          i.state = 'RTB';
+        for (const i of state.interceptors) {
+          if (i.target === contact) {
+            i.target = null;
+            i.state = 'RTB';
+          }
+          if (i.idTarget === contact) {
+            i.idTarget = null;
+            i.idProgress = 0;
+            i.state = 'RTB';
+          }
         }
-        if (i.idTarget === contact) {
-          i.idTarget = null;
-          i.idProgress = 0;
-          i.state = 'RTB';
-        }
+        continue;
       }
     }
 
-    // Off-map cleanup
-    if (!isInProsecutionZone(contact.x, contact.y)) {
-      contact.state = 'NEUTRALIZED';
-    }
-  }
-
-  // ── Civilian exit cleanup ──
-  for (const contact of state.contacts) {
-    if (contact.state !== 'ACTIVE' || !contact.isCivilian) continue;
+    // Off-map cleanup — all active contacts (threats AND civilians)
     if (!isInProsecutionZone(contact.x, contact.y)) {
       contact.state = 'NEUTRALIZED';
     }

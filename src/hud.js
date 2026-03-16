@@ -57,7 +57,7 @@ export function renderContacts() {
   const tbody = document.getElementById('contactBody');
   tbody.innerHTML = '';
 
-  const detectedContacts = state.contacts.filter(t => t.detected);
+  const detectedContacts = state.contacts.filter(t => t.detected && t.state === 'ACTIVE');
 
   for (const contact of detectedContacts) {
     const tr = document.createElement('tr');
