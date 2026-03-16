@@ -155,48 +155,101 @@ export const LONG_ISLAND = [
 let canvasW = 0;
 let canvasH = 0;
 
+// Zoom & pan state
+let zoomLevel = 1;       // 1 = full sector view
+let panX = 0;            // nm offset (east+)
+let panY = 0;            // nm offset (north+)
+
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 6;
+const ZOOM_STEP = 1.15;  // per wheel tick
+
+export function getZoom() { return zoomLevel; }
+export function getPan() { return { x: panX, y: panY }; }
+
+export function setZoom(z) {
+  zoomLevel = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+  clampPan();
+}
+
+export function setPan(x, y) {
+  panX = x;
+  panY = y;
+  clampPan();
+}
+
+export function resetView() {
+  zoomLevel = 1;
+  panX = 0;
+  panY = 0;
+}
+
+// Zoom toward a point in nm space
+export function zoomAtPoint(nmX, nmY, factor) {
+  const oldZoom = zoomLevel;
+  zoomLevel = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoomLevel * factor));
+  const zoomRatio = zoomLevel / oldZoom;
+
+  // Adjust pan so the nm point stays under the cursor
+  panX = nmX - (nmX - panX) / zoomRatio;
+  panY = nmY - (nmY - panY) / zoomRatio;
+  clampPan();
+}
+
+function clampPan() {
+  // How much of the sector is visible at current zoom
+  const halfVisibleX = SECTOR.extentX / zoomLevel;
+  const halfVisibleY = SECTOR.extentY / zoomLevel;
+
+  // Allow panning up to sector edge
+  const maxPanX = SECTOR.extentX - halfVisibleX;
+  const maxPanY = SECTOR.extentY - halfVisibleY;
+
+  panX = Math.max(-maxPanX, Math.min(maxPanX, panX));
+  panY = Math.max(-maxPanY, Math.min(maxPanY, panY));
+}
+
 export function updateCanvasSize(w, h) {
   canvasW = w;
   canvasH = h;
+}
+
+// Base scale (pixels per nm at zoom 1)
+function baseScale() {
+  const scaleX = canvasW / (SECTOR.extentX * 2);
+  const scaleY = canvasH / (SECTOR.extentY * 2);
+  return Math.min(scaleX, scaleY);
 }
 
 // Convert nm coordinates to canvas pixels
 // x = nm east of center, y = nm north of center
 // Canvas: x goes right, y goes DOWN
 export function toCanvas(nmX, nmY) {
-  const scaleX = canvasW / (SECTOR.extentX * 2);
-  const scaleY = canvasH / (SECTOR.extentY * 2);
-  const scale = Math.min(scaleX, scaleY);
-
+  const scale = baseScale() * zoomLevel;
   const cx = canvasW / 2;
   const cy = canvasH / 2;
 
   return [
-    cx + nmX * scale,
-    cy - nmY * scale,  // flip Y — north is up on screen
+    cx + (nmX - panX) * scale,
+    cy - (nmY - panY) * scale,  // flip Y — north is up on screen
   ];
 }
 
 // Convert canvas pixels to nm coordinates
 export function fromCanvas(px, py) {
-  const scaleX = canvasW / (SECTOR.extentX * 2);
-  const scaleY = canvasH / (SECTOR.extentY * 2);
-  const scale = Math.min(scaleX, scaleY);
-
+  const scale = baseScale() * zoomLevel;
   const cx = canvasW / 2;
   const cy = canvasH / 2;
 
   return {
-    x: (px - cx) / scale,
-    y: (cy - py) / scale,  // flip Y
+    x: (px - cx) / scale + panX,
+    y: (cy - py) / scale + panY,  // flip Y
   };
 }
 
-// Pixels per nautical mile at current canvas size
+// Pixels per nautical mile at current canvas size and zoom
 export function nmToPixels() {
-  const scaleX = canvasW / (SECTOR.extentX * 2);
-  const scaleY = canvasH / (SECTOR.extentY * 2);
-  return Math.min(scaleX, scaleY);
+  return baseScale() * zoomLevel;
 }
 
 // Is position within sector boundary?

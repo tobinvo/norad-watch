@@ -79,6 +79,7 @@ export const THREAT_TYPES = {
     altitudeMax: 45000,
     label: 'BOMBER',
     points: 100,
+    emitting: true,           // carries radar/nav emissions — ESM detectable
   },
   FIGHTER: {
     speed: 720,
@@ -89,6 +90,7 @@ export const THREAT_TYPES = {
     evasionChance: 0.5,
     evasionRange: 30,
     evasionCooldown: 3000,
+    emitting: true,           // carries radar — ESM detectable
   },
   CRUISE_MISSILE: {
     speed: 550,
@@ -97,6 +99,7 @@ export const THREAT_TYPES = {
     label: 'CRSMSL',
     points: 200,
     detectionRange: 40,
+    emitting: false,          // passive seeker — no emissions
   },
   ICBM: {
     speed: 15000,
@@ -105,6 +108,7 @@ export const THREAT_TYPES = {
     label: 'ICBM',
     points: 500,
     boostDuration: 45000,
+    emitting: false,          // ballistic — no emissions
   },
 };
 
@@ -125,13 +129,15 @@ export const AIRCRAFT_TYPES = {
     name: 'F-15A Eagle',
     callsign: 'EAGLE',
     role: 'AIR SUPERIORITY',
-    desc: 'Fast, heavy loadout. Best all-around interceptor but burns fuel quickly.',
+    desc: 'Fast, heavy loadout. Best radar and weapons. Burns fuel quickly.',
     speed: 900,
     fuelCapacity: 100,
     fuelBurnRate: 0.04,     // ~83s real endurance, 300nm round trip
     weapons: 4,
     weaponType: 'AMRAAM',
     weaponsRange: 25,
+    radarRange: 60,                   // nm — AN/APG-63
+    radarCone: Math.PI / 3,           // 60° half-angle = 120° total
     speedRating: 3,
     rangeRating: 2,
     enduranceRating: 2,
@@ -142,13 +148,15 @@ export const AIRCRAFT_TYPES = {
     name: 'F-16C Falcon',
     callsign: 'VIPER',
     role: 'MULTIROLE',
-    desc: 'Fuel-efficient with good endurance. Reliable workhorse that can stay on station longer.',
+    desc: 'Fuel-efficient with good endurance. Adequate radar. Reliable workhorse.',
     speed: 780,
     fuelCapacity: 100,
     fuelBurnRate: 0.028,    // ~119s real endurance, 390nm round trip
     weapons: 3,
     weaponType: 'AMRAAM',
     weaponsRange: 25,
+    radarRange: 40,                   // nm — AN/APG-68
+    radarCone: Math.PI / 4,           // 45° half-angle = 90° total
     speedRating: 2,
     rangeRating: 2,
     enduranceRating: 3,
@@ -159,13 +167,15 @@ export const AIRCRAFT_TYPES = {
     name: 'F-106A Delta Dart',
     callsign: 'DART',
     role: 'INTERCEPTOR',
-    desc: 'Fast with nuclear Genie rocket — one shot, guaranteed kill. Very short range, burns fuel fast.',
+    desc: 'Fast with nuclear Genie rocket — one shot, guaranteed kill. Old radar, short range.',
     speed: 850,
     fuelCapacity: 100,
     fuelBurnRate: 0.065,    // ~51s real endurance, 177nm round trip
     weapons: 1,
     weaponType: 'GENIE',
     weaponsRange: 8,
+    radarRange: 30,                   // nm — MA-1 (old tech)
+    radarCone: Math.PI / 6,           // 30° half-angle = 60° total
     speedRating: 3,
     rangeRating: 1,
     enduranceRating: 1,
@@ -176,13 +186,15 @@ export const AIRCRAFT_TYPES = {
     name: 'E-3A Sentry AWACS',
     callsign: 'SENTRY',
     role: 'EARLY WARNING',
-    desc: 'No weapons. Extends radar detection range when airborne. Keep it safe.',
+    desc: 'No weapons. 200nm radar + data link hub. Losing it blinds forward fighters.',
     speed: 360,
     fuelCapacity: 100,
     fuelBurnRate: 0.014,    // ~238s real endurance, 360nm round trip
     weapons: 0,
     weaponType: null,
     weaponsRange: 0,
+    radarRange: 0,                    // AWACS detection handled separately
+    radarCone: 0,
     speedRating: 1,
     rangeRating: 0,
     enduranceRating: 3,
@@ -193,13 +205,15 @@ export const AIRCRAFT_TYPES = {
     name: 'KC-135 Stratotanker',
     callsign: 'TEXACO',
     role: 'AERIAL REFUELING',
-    desc: 'No weapons. Extends fighter endurance when on station. Position carefully — losing it shortens your reach.',
+    desc: 'No weapons, no radar. Extends fighter endurance. Position carefully.',
     speed: 450,
     fuelCapacity: 100,
     fuelBurnRate: 0.012,    // ~277s real endurance
     weapons: 0,
     weaponType: null,
     weaponsRange: 0,
+    radarRange: 0,
+    radarCone: 0,
     speedRating: 1,
     rangeRating: 0,
     enduranceRating: 3,
@@ -216,16 +230,20 @@ export const MISSILE_TYPES = {
   AMRAAM: {
     name: 'AIM-120 AMRAAM',
     speed: 1200,          // visual speed (slower than real Mach 4 for playability — ~2.5s flight at 25nm)
-    guidance: 'ACTIVE',   // tracks target each frame
+    guidance: 'ACTIVE',   // mid-course from shooter, terminal active seeker
     basePk: 0.70,
     callsign: 'FOX THREE',
+    seekerRange: 15,      // nm — seeker activates for terminal guidance
+    seekerCone: Math.PI / 6, // 30° half-angle = 60° total seeker FOV
   },
   GENIE: {
     name: 'AIR-2 Genie',
     speed: 800,           // visual speed (slower than real Mach 3 for playability — ~1.2s flight at 8nm)
-    guidance: 'UNGUIDED', // fixed bearing from launch
+    guidance: 'UNGUIDED', // fixed bearing from launch, nuclear detonation by proximity
     basePk: 0.95,         // nuclear warhead
     callsign: 'FOX ONE — GENIE',
+    seekerRange: 0,       // no seeker
+    seekerCone: 0,
   },
 };
 
@@ -250,6 +268,20 @@ export const MISSILE_ARRIVAL_DIST = 1.5; // nm — missile "arrives" at target
 // ═══════════════════════════════════════════
 // TANKER REFUELING
 // ═══════════════════════════════════════════
+
+export const PATROL_DETECT_RANGE = 40;    // nm — patrolling interceptors auto-engage within this range
+
+// EMCON range multipliers
+export const EMCON_RANGE_MULT = { ACTIVE: 1.0, REDUCED: 0.5, SILENT: 0 };
+
+// ESM (Electronic Support Measures) — passive detection of emitting threats
+export const ESM_DETECT_RANGE = 120;      // nm — passive detection range for emitting threats
+export const ESM_ALPHA = 0.35;            // blip visibility for ESM-only contacts (dim, uncertain)
+
+// Data link & radar
+export const DATA_LINK_RANGE = 200;        // nm from AWACS — fighters within this share sensor data
+export const FIGHTER_ORBIT_RATE = Math.PI / 4; // rads/game-sec — radar sweep rate when orbiting CAP point
+export const MIDCOURSE_LOST_PK_MOD = 0.5;  // Pk multiplier when mid-course guidance is lost
 
 export const TANKER_REFUEL_RANGE = 5;       // nm — fighters within this of an on-station tanker get fuel
 export const TANKER_REFUEL_RATE = 0.15;     // fuel units per game-second restored to receiving fighter

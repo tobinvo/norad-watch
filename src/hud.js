@@ -1,7 +1,17 @@
 import { state } from './state.js';
-import { THREAT_TYPES, GAME_SPEED, CIVILIAN_KILL_PENALTY } from './constants.js';
+import { THREAT_TYPES, GAME_SPEED, CIVILIAN_KILL_PENALTY, AIRCRAFT_TYPES, DATA_LINK_RANGE, AWACS_DETECTION_RANGE } from './constants.js';
 import { WAVES } from '../data/scenarios.js';
 import { ktsToMph } from './units.js';
+// Inline clearMission to avoid circular import with entities.js
+function clearMissionHud(interceptor) {
+  if (interceptor.mission) {
+    interceptor.mission.assignedInterceptor = null;
+    interceptor.mission = null;
+  }
+  interceptor.missionLeg = 0;
+  interceptor.waypoints = [];
+  interceptor.waypointIndex = 0;
+}
 
 // ═══════════════════════════════════════════
 // EVENT LOG
@@ -153,8 +163,10 @@ export function renderAssets() {
       const capInfo = interceptor.state === 'CAP' ? ' CAP' : '';
       const refuelInfo = interceptor.state === 'REFUELING' ? ` TANK:${interceptor.refuelTanker?.id || '?'}` : '';
       const mslTag = state.missiles.some(m => m.shooter === interceptor && m.state === 'FLIGHT') ? ' MSL' : '';
-      const stateLabel = interceptor.state === 'ID_MISSION' ? 'ID' : interceptor.state === 'REFUELING' ? 'REFUEL' : interceptor.state;
-      html += `<div class="asset-line">${interceptor.id} ${stateLabel}${targetInfo}${idInfo}${capInfo}${refuelInfo}${mslTag} ${fuelBarHTML(interceptor)}</div>`;
+      const isPatrol = interceptor.state === 'CAP' && interceptor.mission;
+      const stateLabel = interceptor.state === 'ID_MISSION' ? 'ID' : interceptor.state === 'REFUELING' ? 'REFUEL' : isPatrol ? 'PATROL' : interceptor.state;
+      const missionInfo = isPatrol ? ` ${interceptor.mission.name}` : '';
+      html += `<div class="asset-line">${interceptor.id} ${stateLabel}${missionInfo}${targetInfo}${idInfo}${capInfo}${refuelInfo}${mslTag} ${fuelBarHTML(interceptor)}</div>`;
     }
 
     block.innerHTML = html;
@@ -241,7 +253,8 @@ export function renderSelectionDetail() {
     let html = `<div class="detail-header">▶ ${i.id}</div>`;
     html += `<div class="detail-row"><span class="detail-label">TYPE</span><span class="detail-value friendly">${i.spec.name}</span></div>`;
 
-    const stateLabel = i.state === 'ID_MISSION' ? 'ID MISSION' : i.state === 'REFUELING' ? 'REFUELING' : i.state;
+    const isPatrol = i.state === 'CAP' && i.mission;
+    const stateLabel = i.state === 'ID_MISSION' ? 'ID MISSION' : i.state === 'REFUELING' ? 'REFUELING' : isPatrol ? 'PATROL' : i.state;
     html += `<div class="detail-row"><span class="detail-label">STATE</span><span class="detail-value">${stateLabel}</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">FUEL</span><span class="detail-value ${fuelPct <= 25 ? 'hostile' : ''}">${fuelPct}%</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">WEAPONS</span><span class="detail-value">${i.weapons}x ${i.spec.weaponType || 'NONE'}</span></div>`;
@@ -254,6 +267,22 @@ export function renderSelectionDetail() {
     const wcsColor = { FREE: 'hostile', TIGHT: '', HOLD: 'friendly' }[effectiveWcs] || '';
     const wcsLabel = unitWcs ? `${unitWcs} (OVERRIDE)` : `${state.wcs} (GLOBAL)`;
     html += `<div class="detail-row"><span class="detail-label">WCS</span><span class="detail-value ${wcsColor}">${wcsLabel}</span></div>`;
+
+    // Radar info (fighters only)
+    if (i.spec.radarRange && i.spec.radarCone) {
+      html += `<div class="detail-row"><span class="detail-label">RADAR</span><span class="detail-value">${i.spec.radarRange}NM / ${Math.round(i.spec.radarCone * 2 * 180 / Math.PI)}°</span></div>`;
+
+      // Data link status — inline check (avoids circular import)
+      const awacsList = state.interceptors.filter(a => a.type === 'E-3A' && (a.state === 'AIRBORNE' || a.state === 'CAP'));
+      const linked = awacsList.some(a => {
+        const dx = a.x - i.x;
+        const dy = a.y - i.y;
+        return Math.sqrt(dx * dx + dy * dy) <= DATA_LINK_RANGE;
+      });
+      const linkColor = linked ? 'friendly' : '';
+      const linkLabel = linked ? 'LINKED' : 'NO LINK';
+      html += `<div class="detail-row"><span class="detail-label">DLINK</span><span class="detail-value ${linkColor}">${linkLabel}</span></div>`;
+    }
 
     // Missile in flight indicator
     const activeMissiles = state.missiles.filter(m => m.shooter === i && m.state === 'FLIGHT');
@@ -286,8 +315,16 @@ export function renderSelectionDetail() {
       html += `<div class="detail-row"><span class="detail-label">TANKER</span><span class="detail-value" style="color: #c896ff">${i.refuelTanker.id}</span></div>`;
     }
 
+    // Mission / waypoint info
+    if (i.mission) {
+      html += `<div class="detail-row"><span class="detail-label">MISSION</span><span class="detail-value friendly">${i.mission.name}</span></div>`;
+      html += `<div class="detail-row"><span class="detail-label">LEG</span><span class="detail-value">${(i.missionLeg || 0) + 1}/${i.mission.waypoints.length}</span></div>`;
+    } else if (i.waypoints && i.waypoints.length > 0) {
+      html += `<div class="detail-row"><span class="detail-label">ROUTE</span><span class="detail-value">${(i.waypointIndex || 0) + 1}/${i.waypoints.length} WPS</span></div>`;
+    }
+
     if (!['RTB', 'CRASHED', 'TURNAROUND', 'MAINTENANCE'].includes(i.state)) {
-      html += `<div class="detail-assigned" style="color: var(--yellow-warn)">R-CLICK: ENGAGE/ID/RTB | W = CYCLE WCS</div>`;
+      html += `<div class="detail-assigned" style="color: var(--yellow-warn)">R-CLICK: ENGAGE/ID/RTB | SHIFT+R: WAYPOINT | W = WCS</div>`;
       html += `<div class="detail-actions"><button class="rtb-btn" data-interceptor-id="${i.id}">RTB</button></div>`;
     }
 
@@ -338,8 +375,10 @@ export function renderSelectionDetail() {
         const idInfo = i.idTarget ? ` ID:${i.idTarget.id}` : '';
         const refuelInfo = i.state === 'REFUELING' ? ` TANK:${i.refuelTanker?.id || '?'}` : '';
         const fuelPct = Math.round((i.fuel / i.fuelMax) * 100);
-        const stateLabel = i.state === 'ID_MISSION' ? 'ID' : i.state === 'REFUELING' ? 'REFUEL' : i.state;
-        html += `<div class="detail-assigned">${i.id} ${stateLabel}${targetInfo}${idInfo}${refuelInfo} FUEL:${fuelPct}%</div>`;
+        const isPatrol = i.state === 'CAP' && i.mission;
+        const stateLabel = i.state === 'ID_MISSION' ? 'ID' : i.state === 'REFUELING' ? 'REFUEL' : isPatrol ? 'PATROL' : i.state;
+        const missionInfo = isPatrol ? ` ${i.mission.name}` : '';
+        html += `<div class="detail-assigned">${i.id} ${stateLabel}${missionInfo}${targetInfo}${idInfo}${refuelInfo} FUEL:${fuelPct}%</div>`;
       }
     }
 
@@ -362,6 +401,29 @@ export function renderSelectionDetail() {
       html += `<div class="detail-assigned" style="color: var(--yellow-warn)">R-CLICK: HOSTILE=SCRAMBLE | UNKNOWN=ID | EMPTY=CAP</div>`;
     } else if (ready.length > 0) {
       html += `<div class="detail-assigned" style="color: var(--yellow-warn)">SELECT AN AIRCRAFT ABOVE</div>`;
+    }
+
+    // Missions section
+    const baseMissions = state.missions.filter(m => m.base === b);
+    if (baseMissions.length > 0 || !state.missionDefineMode) {
+      html += `<div class="detail-row" style="margin-top: 6px; border-top: 1px solid #003b0f; padding-top: 4px"><span class="detail-label" style="color: #00cc33">MISSIONS</span></div>`;
+    }
+    for (const mission of baseMissions) {
+      const isSelected = state.selectedMission === mission;
+      const selClass = isSelected ? ' aircraft-selected' : '';
+      const assignee = mission.assignedInterceptor;
+      const assignLabel = assignee ? `${assignee.id}` : 'UNASSIGNED';
+      const assignColor = assignee ? 'friendly' : '';
+      html += `<div class="aircraft-row mission-row${selClass}" data-mission-id="${mission.id}">`;
+      html += `<span class="detail-label">${mission.name}</span>`;
+      html += `<span class="detail-value">[${mission.waypoints.length}]</span>`;
+      html += `<span class="detail-value ${assignColor}">${assignLabel}</span>`;
+      html += `</div>`;
+    }
+    if (state.missionDefineMode && state.missionDefineBase === b) {
+      html += `<div class="detail-assigned" style="color: #ffcc00">DEFINING — ${state.missionDefineWaypoints.length} WPS — R-CLICK MAP | M=OK | ESC=CANCEL</div>`;
+    } else {
+      html += `<div class="detail-assigned" style="color: #555">M = DEFINE PATROL${state.selectedMission ? ' | D = DELETE' : ''}</div>`;
     }
 
     el.innerHTML = html;
@@ -393,6 +455,47 @@ export function initHud() {
     }
   });
 
+  // Mission row click — select mission or assign aircraft
+  panel.addEventListener('mousedown', (e) => {
+    const row = e.target.closest('.mission-row');
+    if (!row) return;
+    e.stopPropagation();
+    const missionId = row.dataset.missionId;
+    const mission = state.missions.find(m => m.id === missionId);
+    if (!mission) return;
+
+    // If aircraft is selected, assign to mission immediately
+    if (state.selectedReadyInterceptor && state.selectedBase === mission.base) {
+      const picked = state.selectedReadyInterceptor;
+      if (picked.state !== 'READY') return;
+
+      // Unassign previous interceptor if any
+      if (mission.assignedInterceptor) {
+        const prev = mission.assignedInterceptor;
+        if (prev.mission === mission) {
+          prev.mission = null;
+          prev.missionLeg = 0;
+        }
+      }
+
+      picked.state = 'CAP';
+      picked.mission = mission;
+      picked.missionLeg = 0;
+      picked.capPoint = null;
+      picked.x = picked.base.x;
+      picked.y = picked.base.y;
+      mission.assignedInterceptor = picked;
+      addLog(`${picked.id} SCRAMBLE — ${mission.name} (${mission.waypoints.length} WPS)`, 'alert');
+      state.selectedBase = null;
+      state.selectedReadyInterceptor = null;
+      state.selectedMission = null;
+      return;
+    }
+
+    // Toggle mission selection
+    state.selectedMission = (state.selectedMission === mission) ? null : mission;
+  });
+
   // RTB button — uses mousedown (not click) because innerHTML rebuilds every frame
   // can destroy the button between mousedown and mouseup, preventing click from firing
   const detailEl = document.getElementById('selectionDetail');
@@ -410,6 +513,7 @@ export function initHud() {
     interceptor.preDivertState = null;
     interceptor.preDivertTarget = null;
     interceptor.preDivertCapPoint = null;
+    clearMissionHud(interceptor);
     addLog(`${interceptor.id} — RTB ORDERED`, '');
     state.selectedInterceptor = null;
   });
@@ -527,6 +631,17 @@ export function renderStatusBar() {
     wcsEl.style.color = color;
     wcsEl.style.borderColor = color;
     wcsEl.style.textShadow = `0 0 6px ${color}44`;
+  }
+
+  // EMCON indicator
+  const emconEl = document.getElementById('emconIndicator');
+  if (emconEl) {
+    emconEl.textContent = `EMCON ${state.emcon}`;
+    const emconColors = { ACTIVE: '#00ff41', REDUCED: '#ffcc00', SILENT: '#ff4444' };
+    const eColor = emconColors[state.emcon] || '#ffcc00';
+    emconEl.style.color = eColor;
+    emconEl.style.borderColor = eColor;
+    emconEl.style.textShadow = `0 0 6px ${eColor}44`;
   }
 
   const waveEl = document.getElementById('waveIndicator');

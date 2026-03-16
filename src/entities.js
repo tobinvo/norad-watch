@@ -1,6 +1,7 @@
 import { AIRCRAFT_TYPES, THREAT_TYPES, ARRIVAL_THRESHOLD, ID_RANGE, ID_TIME, CIVILIAN_TYPES,
   MISSILE_TYPES, PK_TARGET_MODIFIERS, DAMAGE_DESTROY_CHANCE, MISSILE_ARRIVAL_DIST,
-  TANKER_REFUEL_RANGE, TANKER_REFUEL_RATE, TANKER_REFUEL_TARGET } from './constants.js';
+  TANKER_REFUEL_RANGE, TANKER_REFUEL_RATE, TANKER_REFUEL_TARGET,
+  DATA_LINK_RANGE, FIGHTER_ORBIT_RATE, MIDCOURSE_LOST_PK_MOD } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
 
@@ -44,6 +45,7 @@ export function createInterceptor(base, typeName) {
     x: base.x,
     y: base.y,
     speed: spec.speed,
+    heading: 0,          // current facing direction (radians, nm space)
     state: 'READY',
     base,
     target: null,        // assigned contact for engagement
@@ -61,6 +63,11 @@ export function createInterceptor(base, typeName) {
     preDivertState: null,     // state before diverting to tanker
     preDivertTarget: null,    // engagement target before diverting
     preDivertCapPoint: null,  // CAP point before diverting
+    // Mission / waypoint navigation
+    mission: null,            // reference to assigned patrol mission
+    missionLeg: 0,            // current waypoint index in mission
+    waypoints: [],            // ad-hoc waypoints (shift+right-click)
+    waypointIndex: 0,         // current index in ad-hoc waypoints
   };
 }
 
@@ -172,6 +179,126 @@ export function getClassCategory(speed, altitude) {
 }
 
 // ═══════════════════════════════════════════
+// MISSION / WAYPOINT HELPERS
+// ═══════════════════════════════════════════
+
+export function getCurrentWaypoint(interceptor) {
+  if (interceptor.mission && interceptor.mission.waypoints.length > 0) {
+    return interceptor.mission.waypoints[interceptor.missionLeg || 0];
+  }
+  if (interceptor.waypoints && interceptor.waypoints.length > 0) {
+    return interceptor.waypoints[interceptor.waypointIndex || 0];
+  }
+  return null;
+}
+
+function advanceWaypoint(interceptor) {
+  if (interceptor.mission && interceptor.mission.waypoints.length > 1) {
+    interceptor.missionLeg = ((interceptor.missionLeg || 0) + 1) % interceptor.mission.waypoints.length;
+    return true;
+  }
+  if (interceptor.waypoints && interceptor.waypoints.length > 0) {
+    const idx = interceptor.waypointIndex || 0;
+    if (idx < interceptor.waypoints.length - 1) {
+      interceptor.waypointIndex = idx + 1;
+      return true;
+    }
+    // At last waypoint — convert to simple CAP at final point
+    interceptor.capPoint = { ...interceptor.waypoints[idx] };
+    interceptor.waypoints = [];
+    interceptor.waypointIndex = 0;
+    return false;
+  }
+  return false;
+}
+
+export function clearMission(interceptor) {
+  if (interceptor.mission) {
+    interceptor.mission.assignedInterceptor = null;
+    interceptor.mission = null;
+  }
+  interceptor.missionLeg = 0;
+  interceptor.waypoints = [];
+  interceptor.waypointIndex = 0;
+}
+
+// ═══════════════════════════════════════════
+// RADAR & DATA LINK
+// ═══════════════════════════════════════════
+
+// Is this interceptor within data link range of any active AWACS?
+export function hasDataLink(interceptor) {
+  for (const awacs of getActiveAWACS()) {
+    const dx = awacs.x - interceptor.x;
+    const dy = awacs.y - interceptor.y;
+    if (Math.sqrt(dx * dx + dy * dy) <= DATA_LINK_RANGE) return true;
+  }
+  return false;
+}
+
+// Normalize angle to [-PI, PI]
+function normalizeAngle(a) {
+  while (a > Math.PI) a -= 2 * Math.PI;
+  while (a < -Math.PI) a += 2 * Math.PI;
+  return a;
+}
+
+// Is contact within interceptor's radar cone?
+export function isInRadarCone(interceptor, contact) {
+  const spec = AIRCRAFT_TYPES[interceptor.type];
+  if (!spec.radarRange || !spec.radarCone) return false;
+
+  const dx = contact.x - interceptor.x;
+  const dy = contact.y - interceptor.y;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d > spec.radarRange) return false;
+
+  const angleToContact = Math.atan2(dy, dx);
+  const aDiff = normalizeAngle(angleToContact - (interceptor.heading || 0));
+  return Math.abs(aDiff) <= spec.radarCone;
+}
+
+// Can this interceptor fire on this contact? (needs radar track)
+export function hasRadarTrack(interceptor, contact) {
+  const spec = AIRCRAFT_TYPES[interceptor.type];
+  // Genie doesn't need radar lock (unguided nuclear)
+  if (spec.weaponType === 'GENIE') return true;
+  return isInRadarCone(interceptor, contact);
+}
+
+// Update mid-course guidance for a missile
+function updateMidcourse(missile) {
+  if (!missile.midcourseActive) return;
+
+  const shooter = missile.shooter;
+  if (!shooter || shooter.state === 'CRASHED' || shooter.state === 'READY' ||
+      shooter.state === 'TURNAROUND' || shooter.state === 'MAINTENANCE') {
+    missile.midcourseActive = false;
+    addLog(`${missile.id} LOST MID-COURSE — SHOOTER UNAVAILABLE`, 'warn');
+    return;
+  }
+
+  const spec = AIRCRAFT_TYPES[shooter.type];
+  if (!spec || !spec.radarRange) {
+    missile.midcourseActive = false;
+    return;
+  }
+
+  // Check if target is in shooter's radar cone
+  const target = missile.target;
+  const dx = target.x - shooter.x;
+  const dy = target.y - shooter.y;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  const angleToTarget = Math.atan2(dy, dx);
+  const aDiff = normalizeAngle(angleToTarget - (shooter.heading || 0));
+
+  if (d > spec.radarRange || Math.abs(aDiff) > spec.radarCone) {
+    missile.midcourseActive = false;
+    addLog(`${missile.id} LOST MID-COURSE — GOING AUTONOMOUS`, 'warn');
+  }
+}
+
+// ═══════════════════════════════════════════
 // MOVEMENT
 // All coordinates in nautical miles.
 // dSec = game-seconds elapsed (already scaled by GAME_SPEED)
@@ -182,6 +309,26 @@ export function moveContact(contact, dSec) {
   if (contact.state !== 'ACTIVE') return;
 
   const nmPerSec = contact.speed / 3600;
+
+  // AWACS hunting — re-home toward nearest active AWACS each tick
+  if (contact.targetAWACS) {
+    const awacs = getActiveAWACS();
+    if (awacs.length > 0) {
+      let nearest = awacs[0];
+      let bestDist = Infinity;
+      for (const a of awacs) {
+        const dx = a.x - contact.x;
+        const dy = a.y - contact.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < bestDist) { nearest = a; bestDist = d; }
+      }
+      contact.heading = Math.atan2(nearest.y - contact.y, nearest.x - contact.x);
+      contact.hdgDeg = Math.round(((90 - contact.heading * 180 / Math.PI) + 360) % 360);
+    } else {
+      // No AWACS airborne — revert to city targeting
+      contact.targetAWACS = false;
+    }
+  }
 
   // Fighter evasion — jink when interceptor is closing
   if (!contact.isCivilian) {
@@ -228,6 +375,7 @@ export function moveInterceptor(interceptor, dSec) {
   if (interceptor.fuel <= 0) {
     interceptor.fuel = 0;
     interceptor.state = 'CRASHED';
+    clearMission(interceptor);
     return;
   }
 
@@ -274,9 +422,17 @@ export function moveInterceptor(interceptor, dSec) {
   } else if (interceptor.state === 'ID_MISSION' && interceptor.idTarget) {
     targetX = interceptor.idTarget.x;
     targetY = interceptor.idTarget.y;
-  } else if (interceptor.state === 'CAP' && interceptor.capPoint) {
-    targetX = interceptor.capPoint.x;
-    targetY = interceptor.capPoint.y;
+  } else if (interceptor.state === 'CAP') {
+    const wp = getCurrentWaypoint(interceptor);
+    if (wp) {
+      targetX = wp.x;
+      targetY = wp.y;
+    } else if (interceptor.capPoint) {
+      targetX = interceptor.capPoint.x;
+      targetY = interceptor.capPoint.y;
+    } else {
+      return;
+    }
   } else if (interceptor.state === 'REFUELING' && interceptor.refuelTanker) {
     targetX = interceptor.refuelTanker.x;
     targetY = interceptor.refuelTanker.y;
@@ -287,9 +443,9 @@ export function moveInterceptor(interceptor, dSec) {
     return;
   }
 
-  const dx = targetX - interceptor.x;
-  const dy = targetY - interceptor.y;
-  const dist = Math.sqrt(dx * dx + dy * dy);
+  let dx = targetX - interceptor.x;
+  let dy = targetY - interceptor.y;
+  let dist = Math.sqrt(dx * dx + dy * dy);
 
   // ID_MISSION — close enough to identify
   if (interceptor.state === 'ID_MISSION' && dist <= ID_RANGE) {
@@ -341,17 +497,36 @@ export function moveInterceptor(interceptor, dSec) {
         if (prevState === 'AIRBORNE' && prevTarget && prevTarget.state === 'ACTIVE') {
           interceptor.state = 'AIRBORNE';
           interceptor.target = prevTarget;
-        } else if (prevState === 'CAP' && prevCap) {
+        } else if (prevState === 'CAP') {
           interceptor.state = 'CAP';
-          interceptor.capPoint = prevCap;
+          // Mission/waypoints are preserved on the interceptor — they'll resume automatically
+          if (!interceptor.mission && !(interceptor.waypoints && interceptor.waypoints.length > 0)) {
+            interceptor.capPoint = prevCap || { x: interceptor.x, y: interceptor.y };
+          }
         } else {
           interceptor.state = 'CAP';
-          interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
+          if (!interceptor.mission && !(interceptor.waypoints && interceptor.waypoints.length > 0)) {
+            interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
+          }
         }
       }
       return; // Don't move while refueling in range
     }
     // Not in range yet — fall through to normal movement
+  }
+
+  // Waypoint advancement — if CAP and close to current waypoint, advance to next
+  if (interceptor.state === 'CAP' && dist < ARRIVAL_THRESHOLD) {
+    if (advanceWaypoint(interceptor)) {
+      const wp = getCurrentWaypoint(interceptor);
+      if (wp) {
+        const dx2 = wp.x - interceptor.x;
+        const dy2 = wp.y - interceptor.y;
+        dist = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+        dx = dx2;
+        dy = dy2;
+      }
+    }
   }
 
   if (dist < ARRIVAL_THRESHOLD) {
@@ -363,6 +538,7 @@ export function moveInterceptor(interceptor, dSec) {
       interceptor.target = null;
       interceptor.idTarget = null;
       interceptor.capPoint = null;
+      clearMission(interceptor);
       interceptor.sorties++;
 
       if (interceptor.sorties >= interceptor.spec.maxSorties) {
@@ -374,8 +550,15 @@ export function moveInterceptor(interceptor, dSec) {
         addLog(`${interceptor.id} LANDED — TURNAROUND ${Math.round(interceptor.spec.turnaroundTime / 60)}min`, '');
       }
     }
+    // Orbiting at a point — rotate radar heading
+    if (interceptor.state === 'CAP') {
+      interceptor.heading = (interceptor.heading || 0) + FIGHTER_ORBIT_RATE * dSec;
+    }
     return;
   }
+
+  // Update heading from movement direction
+  interceptor.heading = Math.atan2(dy, dx);
 
   const nmPerSec = interceptor.speed / 3600;
   const moveAmt = nmPerSec * dSec;
@@ -452,6 +635,9 @@ export function createMissile(interceptor, contact) {
     launchTime: state.gameTime,
     state: 'FLIGHT',        // FLIGHT | HIT | MISS | EXPIRED
     resolveTime: 0,
+    // Mid-course guidance tracking
+    midcourseActive: true,
+    lastKnownTargetPos: { x: contact.x, y: contact.y },
   };
 }
 
@@ -467,9 +653,43 @@ export function moveMissile(missile, dSec) {
     return;
   }
 
-  // ACTIVE guidance — re-home toward target's current position
+  // ACTIVE guidance — multi-phase tracking (mid-course + terminal seeker)
   if (missile.guidance === 'ACTIVE') {
-    missile.heading = Math.atan2(target.y - missile.y, target.x - missile.x);
+    const mSpec = MISSILE_TYPES[missile.type];
+    const tdx = target.x - missile.x;
+    const tdy = target.y - missile.y;
+    const distToTarget = Math.sqrt(tdx * tdx + tdy * tdy);
+
+    // Update mid-course guidance status
+    updateMidcourse(missile);
+
+    // Terminal phase — seeker active
+    if (mSpec.seekerRange && distToTarget <= mSpec.seekerRange) {
+      const angleToTarget = Math.atan2(tdy, tdx);
+      const aDiff = normalizeAngle(angleToTarget - missile.heading);
+
+      if (Math.abs(aDiff) <= mSpec.seekerCone) {
+        // Target in seeker cone — track it
+        missile.heading = angleToTarget;
+      } else {
+        // Seeker can't acquire — lost lock
+        missile.state = 'MISS';
+        missile.resolveTime = state.gameTime;
+        state.missilesMissed++;
+        addLog(`${missile.id} SEEKER LOST LOCK — ${target.id} EVADED`, 'warn');
+        return;
+      }
+    } else if (missile.midcourseActive) {
+      // Mid-course — home toward target (shooter is guiding)
+      missile.heading = Math.atan2(tdy, tdx);
+      missile.lastKnownTargetPos = { x: target.x, y: target.y };
+    } else {
+      // No guidance — fly toward last known position
+      const lkp = missile.lastKnownTargetPos;
+      if (lkp) {
+        missile.heading = Math.atan2(lkp.y - missile.y, lkp.x - missile.x);
+      }
+    }
   }
   // UNGUIDED — heading stays fixed from launch
 
@@ -517,6 +737,11 @@ function resolveMissileArrival(missile) {
     pk *= 0.75;   // long shot
   } else if (rangePct < 0.40) {
     pk *= 1.15;   // close range bonus
+  }
+
+  // Mid-course guidance lost — missile had to find target autonomously
+  if (!missile.midcourseActive && missile.guidance === 'ACTIVE') {
+    pk *= MIDCOURSE_LOST_PK_MOD;
   }
 
   // Already damaged — guaranteed kill

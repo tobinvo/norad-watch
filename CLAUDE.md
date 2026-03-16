@@ -3,7 +3,7 @@
 A browser-based cold-war NORAD air defense simulation. The player manages radar contacts, scrambles interceptors, and defends North American cities against escalating waves of airborne threats. Prioritizes the "control tower" feel — managing information and making decisions, not clicking frantically.
 
 ## Project Status
-**Phase: 9B complete + KC-135 tanker support (from 9C)** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post. Phase 6 added IFF pipeline + civilian traffic. Phase 7 added WCS (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements. Phase 8 added time compression (1-16x), auto-pause on critical events, game clock. Phase 9A added turnaround time, sortie limits, fuel range envelopes. Phase 9B added missiles as map entities, Pk, damage model.
+**Phase: 11A complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post. Phase 6 added IFF pipeline + civilian traffic. Phase 7 added WCS (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements. Phase 8 added time compression (1-16x), auto-pause on critical events, game clock. Phase 9A added turnaround time, sortie limits, fuel range envelopes. Phase 9B added missiles as map entities, Pk, damage model. Phase 9C added tanker support, patrol missions (define/assign/auto-loop), ad-hoc waypoints (shift+right-click), patrol auto-engagement.
 
 ## Tech Stack
 - **Vanilla JavaScript** + **HTML5 Canvas** — no frameworks, no build step
@@ -126,45 +126,70 @@ norad-watch/
 - **Phase 9B:** Post-kill behavior — interceptors with remaining weapons enter CAP (retaskable) instead of auto-RTB. Re-engagement is automatic if missile misses and weapons remain.
 - **Phase 9B:** Missile efficiency scoring — bonus for high hit rate, penalty per wasted missile.
 
-### Phase 9C: Mission Systems (tanker done)
+### Phase 9C: Mission Systems ✓
 **Goal:** Delegation, logistics, tactical control
 
-1. **Mission-based delegation** — Define patrol zones, assign aircraft to CAP missions. AI flies the pattern. Player intervenes on key decisions only (engage? redirect?). Prevents RTS micro.
+1. **Mission-based delegation** ✓ — M key defines patrol missions (2-8 waypoints, looping). Aircraft assigned via base detail panel. Patrolling interceptors auto-engage hostiles within 40nm (respects WCS), auto-pause on engagement. After kill with weapons remaining, return to patrol route. Missions shown on map (diamonds + dashed route). PATROL state label in HUD.
 2. **Tanker support** ✓ — KC-135 Stratotanker (2 total: Otis + Langley). Scrambled like any aircraft, positioned at CAP orbit. Fighters within 5nm of on-station tanker get passive refueling. Auto-seek: bingo fighters divert to tanker instead of RTB (REFUELING state), refuel to 90%, then resume prior mission. Purple visual identity (circle with +), refuel range ring when selected.
-3. **Waypoints / flight plans** — Plot multi-leg routes instead of just "go to target." Set approach corridors, define patrol boxes with specific legs, create holding patterns. Enables tactical positioning.
+3. **Waypoints / flight plans** ✓ — Shift+right-click appends waypoints to an ad-hoc route (interceptor selected). Aircraft flies through all waypoints in sequence, then CAPs at final point. Route visualized on map when interceptor selected. Manual retask (right-click) clears waypoints/missions. D key deletes selected mission.
 
-### Phase 10: Sensor Depth
+### Phase 10: Sensor Depth ✓
 **Goal:** Active/passive tradeoffs, radar physics
 
-1. **Active radar dilemma** — Ground radar ON = see further, but enemies can detect your emissions and target with anti-radiation missiles. EMCON (emissions control) = shorter detection, but invisible.
-2. **Radar horizon** — Detection range depends on antenna height + target altitude. Low-flying cruise missiles invisible until ~20nm. High-altitude bombers detectable at 200nm. Earth's curvature matters.
-3. **Passive ESM** — Detect enemy radar/jammer emissions without revealing yourself. Gives bearing but poor range accuracy.
-4. **AWACS as critical asset** — Extends detection envelope for entire sector. Losing it creates a sudden, massive gap. Enemies may target it specifically.
-5. **Terrain masking** — Mountains/terrain block radar in certain directions (if sector has terrain features).
-6. **Altitude as a real mechanic** — Altitude affects radar detection (low = hidden longer behind radar horizon), missile engagement envelopes (minimum/maximum launch altitude, look-down/shoot-down capability), fuel burn rate (higher = more efficient cruise), and climb/descent takes real time. Fighters must climb to engage high-altitude targets or dive to catch terrain-huggers.
-7. **Aircraft radars** — Each fighter has its own radar with detection range, scan cone, and search/track modes. Fighter radar range << ground radar but provides autonomous detection when out of data link range. AWACS radar is wide-area search; fighter radar is narrow focused cone.
-8. **Data links** — Units share sensor data through AWACS as a network hub. With data link, all friendly units see what AWACS sees. Lose the AWACS (or fly out of link range), and each fighter only sees what its own radar covers. Creates urgent incentive to protect AWACS and stay within link range. Fog of war degrades gracefully as network nodes go down.
+- **Phase 10:** Aircraft radars ✓ — Each fighter type has radar with range and cone (F-15A: 60nm/120°, F-16C: 40nm/90°, F-106A: 30nm/60°). Radar cone rendered on map when selected. Heading tracks movement direction; orbit rotation when holding CAP.
+- **Phase 10:** Data links ✓ — Fighters within 200nm of AWACS share sensor data (contacts visible on shared picture). Without data link, fighters only see own radar cone. "NO LINK" indicator when disconnected. Green cone when linked, yellow when not.
+- **Phase 10:** Missile seekers ✓ — AMRAAM has multi-phase guidance: mid-course (shooter radar guides) → terminal (seeker cone acquires). Seeker can lose lock if target outside 60° cone. Mid-course lost if shooter can't maintain radar track (0.5x Pk penalty). Genie unguided (fixed bearing, nuclear).
+- **Phase 10:** Engagement radar track ✓ — Interceptors must have radar track (target in cone) to fire AMRAAM. Genie exempt (unguided). Prevents fire-and-forget from any angle.
+- **Phase 10:** AWACS as critical asset ✓ — From Wave 3+, enemy fighters (40% chance) specifically hunt AWACS. Fighters home on nearest active AWACS, crash it on arrival. Losing AWACS creates immediate sensor gap + data link loss. Auto-pause on AWACS down.
+- **Phase 10:** EMCON ✓ — E key cycles ground radar: ACTIVE (full range), REDUCED (50% range), SILENT (radar off). Indicator in top bar (green/yellow/red). Sweep and detection range scale with EMCON state. SILENT = no ground radar detection, relies on AWACS + fighter radars only.
+- **Phase 10:** ESM ✓ — Passive detection of emitting threats (bombers, fighters) at 120nm range. Gives dim blip (0.35 alpha) — detected but uncertain. Cruise missiles and ICBMs don't emit, stay invisible to ESM. Works even in EMCON SILENT.
+- **Phase 10:** HUD updates ✓ — Interceptor detail shows radar range/cone, data link status. EMCON indicator in top bar.
+- **Deferred:** Radar horizon (altitude-based detection), terrain masking, altitude as full mechanic — pushed to future phase.
 
-### Phase 11: Threat Sophistication
-**Goal:** Adversaries that think, not just fly in straight lines
+### Phase 11A: Map Zoom ✓
+**Goal:** Core usability before adding more visual complexity
+
+- **Phase 11A:** Mouse wheel zoom ✓ — Zoom toward cursor position (1x–6x). All rendering (blips, range rings, cones, labels, sweep) scales automatically via `toCanvas`/`nmToPixels`. Zoom indicator on canvas when zoomed.
+- **Phase 11A:** Pan ✓ — Left-click drag to pan when zoomed (skips entities under cursor). Middle-click drag always pans. Pan clamped to sector bounds.
+- **Phase 11A:** Hit detection ✓ — `fromCanvas` accounts for zoom+pan, so all click/right-click targeting works at any zoom level.
+- **Phase 11A:** Home key resets zoom to 1x and pan to center. Auto-reset on game restart.
+
+### Phase 11B: Electronic Warfare
+**Goal:** EMCON becomes a real tactical choice
 
 1. **ECM/Jamming** — Threat aircraft carry jammers that degrade your radar. Contacts appear fuzzy, uncertain position, possible false tracks.
 2. **Decoys** — Threats launch decoys that appear as additional contacts on radar. Must be sorted from real threats.
-3. **Formation tactics** — Fighters fly escort for bombers. Must defeat escorts to reach bombers.
-4. **Terrain-hugging routes** — Threats exploit terrain masking and low altitude to delay detection.
-5. **SEAD threats** — Anti-radiation missiles that target your radar stations if they're emitting.
+3. **SEAD threats** — Anti-radiation missiles that target your radar stations when emitting. EMCON SILENT protects stations but blinds you. Creates active/passive tension.
 
-### Phase 12: Polish & Atmosphere
-**Goal:** Complete experience
+### Phase 11C: Formation Tactics
+**Goal:** Layered, coordinated threats
+
+1. **Escort formations** — Fighters fly escort for bombers. Must defeat escorts to reach bombers.
+2. **Coordinated strikes** — Multiple threats arrive simultaneously from different axes.
+
+### Phase 12A: Sound Design
+**Goal:** Biggest atmosphere impact
 
 1. **Sound design** — Web Audio API: radar sweep tone, detection ping, alert klaxon, radio chatter fragments, engagement sounds. No external files.
-2. **Weather sectors** — Overlay zones degrading radar detection
-3. **Scenario variety** — Multiple sectors (Alaska, Northeast, Pacific), each with different geography, threat axes, and asset mix
-4. **Difficulty scaling** — Cadet (auto-ID, no civilians) → Veteran (full IFF pipeline, civilian traffic, SEAD threats)
-5. **Post-scenario debrief** — Timeline replay showing all contacts, your decisions, outcomes. "What you missed" reveal.
-6. **Communication delays** — Detection → authorization → scramble has a time cost. Not instant.
-7. **Crew proficiency** — Affects reaction times, ID speed, engagement accuracy
-8. **Map zoom** — Mouse wheel zoom in/out on the radar map. Zoom toward cursor position. Maintains nm coordinate accuracy at all zoom levels. Pan with click-drag when zoomed in.
+
+### Phase 12B: Difficulty & Replayability
+**Goal:** Accessible to new players, challenging for veterans
+
+1. **Difficulty scaling** — Cadet (auto-ID, no civilians) → Veteran (full IFF pipeline, civilian traffic, SEAD threats)
+2. **Scenario variety** — Multiple sectors (Alaska, Northeast, Pacific), each with different geography, threat axes, and asset mix
+
+### Phase 12C: Deep Polish
+**Goal:** Complete experience
+
+1. **Weather sectors** — Overlay zones degrading radar detection
+2. **Post-scenario debrief** — Timeline replay showing all contacts, your decisions, outcomes. "What you missed" reveal.
+3. **Communication delays** — Detection → authorization → scramble has a time cost. Not instant.
+4. **Crew proficiency** — Affects reaction times, ID speed, engagement accuracy
+
+### Deferred
+- **Terrain masking** — blocked until altitude is a real mechanic
+- **Terrain-hugging routes** — same dependency
+- **Altitude as full mechanic** — radar horizon, engagement envelopes, climb/descent time, fuel burn by altitude
 
 ### Phase Summary
 | Phase | Delivers | Feel |
@@ -176,10 +201,14 @@ norad-watch/
 | 8     | Time compression, auto-pause, scenario clock | "Watch station rhythm" |
 | 9A    | Turnaround, sortie limits, fuel range envelopes | "I'm running out of planes" |
 | 9B    | Missiles-as-entities, Pk, damage model | "Will it hit?" |
-| 9C    | CAP delegation, tankers, waypoints | "Set it and forget it" |
-| 10    | Active/passive sensors, radar horizon, altitude, aircraft radars, data links | "I can't see everything" |
-| 11    | ECM, decoys, SEAD, formation tactics | "They're fighting back smart" |
-| 12    | Sound, weather, scenarios, difficulty, debrief | Complete experience |
+| 9C    | CAP delegation, tankers, waypoints | "Set it and forget it" (done) |
+| 10    | Aircraft radars, data links, missile seekers, EMCON, ESM, AWACS hunting | "I can't see everything" (done) |
+| 11A   | Map zoom + pan | "Let me look closer" (done) |
+| 11B   | ECM, decoys, SEAD | "They're fighting back smart" |
+| 11C   | Formation tactics, coordinated strikes | "They're organized" |
+| 12A   | Sound design | "I can hear the tension" |
+| 12B   | Difficulty scaling, scenario variety | "Play it again" |
+| 12C   | Weather, debrief, comms delays, crew proficiency | Complete experience |
 
 ## Core Mechanics
 
@@ -228,9 +257,15 @@ norad-watch/
 - MAINTENANCE — sortie limit reached, permanently out of game
 - AIRBORNE — in flight, heading to target (fires missile at weapons range)
 - RTB — returning to base
-- CAP — orbiting patrol point (also used post-kill with weapons remaining)
+- CAP — orbiting patrol point, following waypoints, or flying patrol mission (also used post-kill with weapons remaining)
 - ID_MISSION — closing on unknown contact for visual identification
 - CRASHED — fuel exhaustion, lost permanently
+
+### Missions & Waypoints
+- **Patrol missions:** M key (with base selected) defines looping patrol route (2-8 waypoints). Stored globally, associated with a base. Assigned interceptor loops waypoints continuously.
+- **Ad-hoc waypoints:** Shift+right-click (with interceptor selected) appends waypoints. Aircraft flies through in order, CAPs at final point.
+- **Patrol auto-engagement:** Patrolling interceptors auto-engage contacts within 40nm (per WCS rules). After kill, return to patrol route. Auto-pause on engagement.
+- **Mission management:** Click mission in base panel to select. D key deletes. Click aircraft then mission row to assign & scramble. Manual retask (right-click) clears mission.
 
 ### Threat States
 - UNKNOWN — unidentified, may be hostile or friendly

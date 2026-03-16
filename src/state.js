@@ -62,6 +62,9 @@ export const state = {
   // Weapons Control State
   wcs: 'TIGHT',  // Global: 'FREE', 'TIGHT', 'HOLD'
 
+  // EMCON (Emissions Control) — ground radar state
+  emcon: 'ACTIVE',  // 'ACTIVE' (full), 'REDUCED' (50% range), 'SILENT' (off)
+
   // Game status
   paused: false,
   status: 'ACTIVE',
@@ -70,4 +73,14 @@ export const state = {
   civiliansKilled: 0,
   missilesExpended: 0,
   missilesMissed: 0,
+
+  // Missions (patrol routes)
+  missions: [],
+  nextMissionNum: 1,
+  selectedMission: null,
+
+  // Mission definition mode
+  missionDefineMode: false,
+  missionDefineBase: null,
+  missionDefineWaypoints: [],
 };

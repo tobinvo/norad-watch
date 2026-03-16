@@ -1,12 +1,12 @@
 import { GAME_SPEED, AUTO_PAUSE_COOLDOWN, TIME_STEPS } from './constants.js';
 import { state } from './state.js';
-import { SECTOR, toCanvas, updateCanvasSize } from './sector.js';
+import { SECTOR, toCanvas, updateCanvasSize, resetView, getZoom } from './sector.js';
 import { createBase, createCity, moveContact, moveInterceptor, moveMissile, updateTankerRefueling } from './entities.js';
 import { drawMap } from './map.js';
-import { drawRangeRings, drawRadarSites, drawSweep, drawContacts, drawInterceptors, drawMissiles, drawBases, drawCities, drawEffects, drawAwacsRange, initRadarSweeps } from './radar.js';
+import { drawRangeRings, drawRadarSites, drawSweep, drawContacts, drawInterceptors, drawMissiles, drawBases, drawCities, drawEffects, drawAwacsRange, initRadarSweeps, drawMissions } from './radar.js';
 import { trySpawnThreat } from './spawner.js';
 import { initCivilianTraffic, trySpawnCivilian } from './civilians.js';
-import { resolveEngagements, checkWinLose } from './intercept.js';
+import { resolveEngagements, checkWinLose, updatePatrolEngagement } from './intercept.js';
 import { renderLog, renderContacts, renderAssets, renderStatusBar, renderSelectionDetail, addLog, showScoringOverlay, initHud } from './hud.js';
 import { initInput } from './input.js';
 import { updateDefcon, calculateFinalScore } from './scoring.js';
@@ -57,7 +57,8 @@ function initGame() {
   addLog(`${state.radarSites.length} RADAR SITES ACTIVE — COVERAGE NORMAL`, '');
   addLog('CIVILIAN AIR TRAFFIC IN SECTOR — IFF ACTIVE', '');
   addLog('LEFT-CLICK SELECT | RIGHT-CLICK ACTION | SPACE PAUSE', '');
-  addLog('H = MARK HOSTILE | F = MARK FRIENDLY (with contact selected)', '');
+  addLog('H = MARK HOSTILE | F = MARK FRIENDLY | M = DEFINE PATROL', '');
+  addLog('SHIFT+R-CLICK = ADD WAYPOINT | E = EMCON', '');
 }
 
 function resetGame() {
@@ -90,6 +91,7 @@ function resetGame() {
   state.logEntries = [];
   state.effects = [];
   state.wcs = 'TIGHT';
+  state.emcon = 'ACTIVE';
   state.timeMultiplier = 1;
   state.lastAutoPause = 0;
   state._prevHostileDetected = 0;
@@ -100,8 +102,15 @@ function resetGame() {
   state.civiliansKilled = 0;
   state.missilesExpended = 0;
   state.missilesMissed = 0;
+  state.missions = [];
+  state.nextMissionNum = 1;
+  state.selectedMission = null;
+  state.missionDefineMode = false;
+  state.missionDefineBase = null;
+  state.missionDefineWaypoints = [];
   scoreShown = false;
   sweepTime = 0;
+  resetView();
 
   document.getElementById('eventLog').innerHTML = '';
   const overlay = document.getElementById('scoringOverlay');
@@ -205,6 +214,11 @@ function update(gameDt, timestamp) {
     autoPause('MISSILE MISS', timestamp);
   }
 
+  // Patrol auto-engagement
+  if (updatePatrolEngagement()) {
+    autoPause('PATROL ENGAGING', timestamp);
+  }
+
   const prevCitiesHit = state.citiesHit;
   resolveEngagements();
   updateDefcon();
@@ -251,10 +265,19 @@ function render(timestamp) {
   drawAwacsRange(ctx);
   drawBases(ctx);
   drawSweep(ctx, state.gameTime, sweepTime);
+  drawMissions(ctx, sweepTime);
   drawContacts(ctx, sweepTime);
   drawInterceptors(ctx, sweepTime);
   drawMissiles(ctx);
   drawEffects(ctx, state.gameTime);
+
+  // Zoom indicator
+  const zoom = getZoom();
+  if (zoom > 1) {
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = 'rgba(0, 255, 65, 0.5)';
+    ctx.fillText(`ZOOM ${zoom.toFixed(1)}x — HOME TO RESET`, 8, h - 8);
+  }
 
   renderContacts();
   renderAssets();

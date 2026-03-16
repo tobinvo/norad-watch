@@ -1,12 +1,13 @@
 import {
   GREEN_BRIGHT, GREEN_MID, GREEN_DIM, RED_ALERT, YELLOW_WARN, AMBER,
   SWEEP_PERIOD, SWEEP_TRAIL_ANGLE, BLIP_FADE_TIME,
-  AWACS_DETECTION_RANGE, THREAT_TYPES, SWEEPS_TO_CLASSIFY,
-  TANKER_REFUEL_RANGE,
+  AWACS_DETECTION_RANGE, THREAT_TYPES, SWEEPS_TO_CLASSIFY, AIRCRAFT_TYPES,
+  TANKER_REFUEL_RANGE, DATA_LINK_RANGE,
+  EMCON_RANGE_MULT, ESM_DETECT_RANGE, ESM_ALPHA,
 } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
-import { getActiveAWACS, getClassCategory } from './entities.js';
+import { getActiveAWACS, getClassCategory, hasDataLink, isInRadarCone } from './entities.js';
 import { toCanvas, nmToPixels, SECTOR } from './sector.js';
 import { ktsToMph } from './units.js';
 
@@ -40,29 +41,38 @@ export function drawRangeRings(ctx) {
 
 export function drawRadarSites(ctx) {
   const pxPerNm = nmToPixels();
+  const emconMult = EMCON_RANGE_MULT[state.emcon] || 1.0;
 
   for (const site of state.radarSites) {
     const [sx, sy] = toCanvas(site.x, site.y);
-    const rPx = site.rangeNm * pxPerNm;
+    const effectiveRange = site.rangeNm * emconMult;
+    const rPx = effectiveRange * pxPerNm;
 
-    ctx.beginPath();
-    ctx.arc(sx, sy, rPx, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(0, 255, 65, 0.06)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([6, 4]);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    if (emconMult > 0) {
+      ctx.beginPath();
+      ctx.arc(sx, sy, rPx, 0, Math.PI * 2);
+      const emconAlpha = state.emcon === 'REDUCED' ? 0.04 : 0.06;
+      ctx.strokeStyle = `rgba(0, 255, 65, ${emconAlpha})`;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
 
-    ctx.fillStyle = 'rgba(0, 255, 65, 0.012)';
-    ctx.fill();
+      ctx.fillStyle = `rgba(0, 255, 65, ${emconAlpha * 0.2})`;
+      ctx.fill();
+    }
 
-    ctx.fillStyle = GREEN_DIM;
+    ctx.fillStyle = emconMult > 0 ? GREEN_DIM : '#331100';
     ctx.fillRect(sx - 2, sy - 2, 4, 4);
 
     ctx.font = '7px "Courier New", monospace';
-    ctx.fillStyle = '#0d3a12';
+    ctx.fillStyle = emconMult > 0 ? '#0d3a12' : '#331100';
     ctx.fillText(`${site.name}`, sx + 5, sy - 4);
-    ctx.fillText(`${site.rangeNm}NM`, sx + 5, sy + 5);
+    if (emconMult > 0) {
+      ctx.fillText(`${Math.round(effectiveRange)}NM`, sx + 5, sy + 5);
+    } else {
+      ctx.fillText('SILENT', sx + 5, sy + 5);
+    }
   }
 }
 
@@ -90,13 +100,16 @@ export function initRadarSweeps() {
 
 export function drawSweep(ctx, gameTime, sweepTime) {
   const pxPerNm = nmToPixels();
+  const emconMult = EMCON_RANGE_MULT[state.emcon] || 1.0;
 
   for (const site of state.radarSites) {
     const adjustedTime = sweepTime + (site.sweepOffset || 0);
     site.sweepAngle = ((adjustedTime % SWEEP_PERIOD) / SWEEP_PERIOD) * Math.PI * 2;
 
+    if (emconMult <= 0) continue; // SILENT — no sweep
+
     const [sx, sy] = toCanvas(site.x, site.y);
-    const maxR = site.rangeNm * pxPerNm;
+    const maxR = site.rangeNm * emconMult * pxPerNm;
 
     // Clip to site coverage circle
     ctx.save();
@@ -153,16 +166,20 @@ function updateBlipVisibility(contact, sweepTime) {
   const spec = (!contact.isCivilian && contact.type) ? THREAT_TYPES[contact.type] : null;
   let maxAlpha = 0;
   let freshSweep = false;
+  const emconMult = EMCON_RANGE_MULT[state.emcon] || 1.0;
 
-  // Check each radar site's sweep
+  // Check each radar site's sweep (affected by EMCON)
   for (const site of state.radarSites) {
+    if (emconMult <= 0) break; // SILENT — no ground radar detection
+
     const dx = contact.x - site.x;
     const dy = contact.y - site.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    const effectiveRange = (spec && spec.detectionRange)
+    const baseRange = (spec && spec.detectionRange)
       ? Math.min(site.rangeNm, spec.detectionRange)
       : site.rangeNm;
+    const effectiveRange = baseRange * emconMult;
 
     if (dist > effectiveRange) continue;
 
@@ -209,6 +226,32 @@ function updateBlipVisibility(contact, sweepTime) {
           contact.allegiance = 'HOSTILE';
           addLog(`${contact.id} BALLISTIC TRACK — AUTO-DESIGNATED HOSTILE`, 'alert');
         }
+      }
+    }
+  }
+
+  // Fighter radar detection — data-linked fighters contribute to shared picture
+  for (const interceptor of state.interceptors) {
+    if (!['AIRBORNE', 'CAP', 'ID_MISSION', 'REFUELING'].includes(interceptor.state)) continue;
+    if (isInRadarCone(interceptor, contact)) {
+      // Only add to shared picture if data-linked or if this fighter is selected
+      if (hasDataLink(interceptor) || state.selectedInterceptor === interceptor) {
+        maxAlpha = Math.max(maxAlpha, 0.7);
+        if (!contact.detected) freshSweep = true;
+      }
+    }
+  }
+
+  // ESM — passive detection of emitting threats (bearing only, dim track)
+  if (spec && spec.emitting && !contact.isCivilian) {
+    for (const site of state.radarSites) {
+      const dx = contact.x - site.x;
+      const dy = contact.y - site.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist <= ESM_DETECT_RANGE) {
+        maxAlpha = Math.max(maxAlpha, ESM_ALPHA);
+        if (!contact.detected) freshSweep = true;
+        break; // one ESM detection is enough
       }
     }
   }
@@ -461,6 +504,177 @@ function drawThreatShape(ctx, bx, by, size, contact, sweepTime) {
 }
 
 // ═══════════════════════════════════════════
+// MISSIONS & WAYPOINTS
+// ═══════════════════════════════════════════
+
+export function drawMissions(ctx, sweepTime) {
+  // Draw mission define mode waypoints (bright, pulsing)
+  if (state.missionDefineMode && state.missionDefineWaypoints.length > 0) {
+    const wps = state.missionDefineWaypoints;
+    const pulse = 0.6 + 0.4 * Math.sin(sweepTime / 300);
+    ctx.save();
+
+    // Lines between waypoints
+    if (wps.length > 1) {
+      ctx.strokeStyle = `rgba(255, 204, 0, ${0.5 * pulse})`;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      const [fx, fy] = toCanvas(wps[0].x, wps[0].y);
+      ctx.moveTo(fx, fy);
+      for (let i = 1; i < wps.length; i++) {
+        const [wx, wy] = toCanvas(wps[i].x, wps[i].y);
+        ctx.lineTo(wx, wy);
+      }
+      // Show loop line back to start
+      ctx.lineTo(fx, fy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Waypoint diamonds
+    for (let i = 0; i < wps.length; i++) {
+      const [wx, wy] = toCanvas(wps[i].x, wps[i].y);
+      const s = 5;
+      ctx.fillStyle = `rgba(255, 204, 0, ${0.8 * pulse})`;
+      ctx.beginPath();
+      ctx.moveTo(wx, wy - s);
+      ctx.lineTo(wx + s, wy);
+      ctx.lineTo(wx, wy + s);
+      ctx.lineTo(wx - s, wy);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.font = '8px "Courier New", monospace';
+      ctx.fillStyle = `rgba(255, 204, 0, ${pulse})`;
+      ctx.fillText(`${i + 1}`, wx + s + 2, wy + 3);
+    }
+
+    ctx.restore();
+  }
+
+  // Draw existing missions for selected base (dim)
+  if (state.selectedBase) {
+    const baseMissions = state.missions.filter(m => m.base === state.selectedBase);
+    for (const mission of baseMissions) {
+      if (mission.waypoints.length < 2) continue;
+      const isSelected = state.selectedMission === mission;
+      const alpha = isSelected ? 0.5 : 0.2;
+      const color = isSelected ? '#00ff88' : '#00cc33';
+
+      ctx.save();
+      ctx.strokeStyle = `${color}`;
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = isSelected ? 1.5 : 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      const [fx, fy] = toCanvas(mission.waypoints[0].x, mission.waypoints[0].y);
+      ctx.moveTo(fx, fy);
+      for (let i = 1; i < mission.waypoints.length; i++) {
+        const [wx, wy] = toCanvas(mission.waypoints[i].x, mission.waypoints[i].y);
+        ctx.lineTo(wx, wy);
+      }
+      ctx.lineTo(fx, fy); // loop
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Waypoint diamonds
+      for (let i = 0; i < mission.waypoints.length; i++) {
+        const [wx, wy] = toCanvas(mission.waypoints[i].x, mission.waypoints[i].y);
+        const s = 4;
+        ctx.globalAlpha = alpha * 1.5;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(wx, wy - s);
+        ctx.lineTo(wx + s, wy);
+        ctx.lineTo(wx, wy + s);
+        ctx.lineTo(wx - s, wy);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Mission label at first waypoint
+      ctx.globalAlpha = alpha * 2;
+      ctx.font = '7px "Courier New", monospace';
+      ctx.fillStyle = color;
+      ctx.fillText(mission.name, fx + 6, fy - 6);
+
+      ctx.restore();
+    }
+  }
+
+  // Draw waypoints for selected interceptor (ad-hoc or mission)
+  if (state.selectedInterceptor) {
+    const i = state.selectedInterceptor;
+    let wps = null;
+    let currentIdx = 0;
+    let loop = false;
+
+    if (i.mission && i.mission.waypoints.length > 0) {
+      wps = i.mission.waypoints;
+      currentIdx = i.missionLeg || 0;
+      loop = true;
+    } else if (i.waypoints && i.waypoints.length > 0) {
+      wps = i.waypoints;
+      currentIdx = i.waypointIndex || 0;
+    }
+
+    if (wps && wps.length > 0) {
+      ctx.save();
+
+      // Route lines
+      ctx.strokeStyle = 'rgba(0, 255, 136, 0.35)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+
+      // Line from interceptor to current waypoint
+      const [ix, iy] = toCanvas(i.x, i.y);
+      const [cwx, cwy] = toCanvas(wps[currentIdx].x, wps[currentIdx].y);
+      ctx.moveTo(ix, iy);
+      ctx.lineTo(cwx, cwy);
+
+      // Lines between remaining waypoints
+      let idx = currentIdx;
+      for (let n = 0; n < wps.length - 1; n++) {
+        const nextIdx = (idx + 1) % wps.length;
+        if (!loop && nextIdx <= idx) break;
+        const [wx, wy] = toCanvas(wps[nextIdx].x, wps[nextIdx].y);
+        ctx.lineTo(wx, wy);
+        idx = nextIdx;
+      }
+      if (loop) {
+        const [fx, fy] = toCanvas(wps[currentIdx].x, wps[currentIdx].y);
+        ctx.lineTo(fx, fy);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Waypoint diamonds
+      for (let w = 0; w < wps.length; w++) {
+        const [wx, wy] = toCanvas(wps[w].x, wps[w].y);
+        const s = w === currentIdx ? 5 : 3;
+        const alpha = w === currentIdx ? 0.8 : 0.4;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#00ff88';
+        ctx.beginPath();
+        ctx.moveTo(wx, wy - s);
+        ctx.lineTo(wx + s, wy);
+        ctx.lineTo(wx, wy + s);
+        ctx.lineTo(wx - s, wy);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.font = '7px "Courier New", monospace';
+        ctx.fillText(`${w + 1}`, wx + s + 2, wy + 3);
+      }
+
+      ctx.restore();
+    }
+  }
+}
+
+// ═══════════════════════════════════════════
 // INTERCEPTORS
 // ═══════════════════════════════════════════
 
@@ -555,6 +769,45 @@ export function drawInterceptors(ctx, sweepTime) {
         ctx.fillStyle = 'rgba(200, 150, 255, 0.5)';
         ctx.fillText(`REFUEL ${TANKER_REFUEL_RANGE}NM`, ix + refuelR + 3, iy - 3);
       }
+
+      // Radar cone (fighters only)
+      const radarSpec = interceptor.spec;
+      if (radarSpec.radarRange && radarSpec.radarCone && !isAWACS && !isTanker) {
+        const pxPerNm = nmToPixels();
+        const radarR = radarSpec.radarRange * pxPerNm;
+        // Convert nm heading to canvas angle (Y is flipped)
+        const canvasHeading = -(interceptor.heading || 0);
+        const linked = hasDataLink(interceptor);
+        const coneColor = linked ? 'rgba(0, 255, 100, 0.04)' : 'rgba(255, 200, 0, 0.04)';
+        const edgeColor = linked ? 'rgba(0, 255, 100, 0.2)' : 'rgba(255, 200, 0, 0.2)';
+
+        ctx.beginPath();
+        ctx.moveTo(ix, iy);
+        ctx.arc(ix, iy, radarR, canvasHeading - radarSpec.radarCone, canvasHeading + radarSpec.radarCone);
+        ctx.closePath();
+        ctx.fillStyle = coneColor;
+        ctx.fill();
+        ctx.strokeStyle = edgeColor;
+        ctx.lineWidth = 0.5;
+        ctx.setLineDash([3, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Radar range label
+        ctx.font = '7px "Courier New", monospace';
+        ctx.fillStyle = edgeColor;
+        const labelAngle = canvasHeading;
+        const labelX = ix + Math.cos(labelAngle) * (radarR + 5);
+        const labelY = iy + Math.sin(labelAngle) * (radarR + 5);
+        ctx.fillText(`${radarSpec.radarRange}NM`, labelX, labelY);
+
+        // Data link status indicator
+        if (!linked) {
+          ctx.font = '8px "Courier New", monospace';
+          ctx.fillStyle = 'rgba(255, 200, 0, 0.6)';
+          ctx.fillText('NO LINK', ix + size + 3, iy + 12);
+        }
+      }
     }
 
     // ID mission indicator — pulsing ring
@@ -572,7 +825,8 @@ export function drawInterceptors(ctx, sweepTime) {
     ctx.font = '8px "Courier New", monospace';
     ctx.fillStyle = color;
     ctx.shadowBlur = 0;
-    const stateLabel = isIdMission ? ' ID' : isRefueling ? ' REFUEL' : '';
+    const isPatrol = interceptor.state === 'CAP' && interceptor.mission;
+    const stateLabel = isIdMission ? ' ID' : isRefueling ? ' REFUEL' : isPatrol ? ' PATROL' : '';
     ctx.fillText(`${interceptor.id}${stateLabel}`, ix + size + 3, iy + 3);
 
     // CAP orbit marker

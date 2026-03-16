@@ -1,6 +1,6 @@
 import { WAVE_BREAK, WAVE_FIRST_DELAY } from './constants.js';
 import { state } from './state.js';
-import { createThreat } from './entities.js';
+import { createThreat, getActiveAWACS } from './entities.js';
 import { addLog } from './hud.js';
 import { WAVES } from '../data/scenarios.js';
 import { getSpawnPosition, pickSpawnEdge } from './sector.js';
@@ -58,6 +58,15 @@ export function trySpawnThreat(gameTime) {
   const spawn = getSpawnPosition(side);
 
   const threat = createThreat(spawn.x, spawn.y, targetCity, typeName);
+
+  // Wave 3+ FIGHTERS may specifically hunt AWACS
+  if (state.currentWave >= 3 && typeName === 'FIGHTER' && Math.random() < 0.4) {
+    const awacs = getActiveAWACS();
+    if (awacs.length > 0) {
+      threat.targetAWACS = true; // flag for moveContact to home on AWACS
+    }
+  }
+
   state.contacts.push(threat);
   state.totalSpawned++;
   state.waveSpawnIndex++;

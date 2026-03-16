@@ -123,6 +123,13 @@ body {
   cursor: pointer;
 }
 
+.top-bar .emcon {
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  border: 1px solid;
+}
+
 .top-bar .wave {
   color: var(--green-mid);
   font-size: 12px;

@@ -1,8 +1,9 @@
-import { CITY_IMPACT_RADIUS, THREAT_TYPES, MISSILE_TYPES } from './constants.js';
+import { CITY_IMPACT_RADIUS, THREAT_TYPES, MISSILE_TYPES, PATROL_DETECT_RANGE } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
 import { isInProsecutionZone } from './sector.js';
-import { createMissile } from './entities.js';
+import { createMissile, hasRadarTrack, getActiveAWACS, clearMission } from './entities.js';
+import { getEffectiveWCS } from './input.js';
 
 function dist(a, b) {
   const dx = a.x - b.x;
@@ -36,10 +37,15 @@ export function resolveEngagements() {
     if (contact.state !== 'ACTIVE') {
       interceptor.target = null;
       if (interceptor.weapons > 0) {
-        // Still armed — CAP at current position, available for retasking
         interceptor.state = 'CAP';
-        interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
-        addLog(`${interceptor.id} TARGET DOWN — ${interceptor.weapons}x ${interceptor.spec.weaponType} REMAINING — AWAITING ORDERS`, '');
+        if (interceptor.mission) {
+          // Return to patrol route
+          interceptor.capPoint = null;
+          addLog(`${interceptor.id} TARGET DOWN — RESUMING ${interceptor.mission.name}`, '');
+        } else {
+          interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
+          addLog(`${interceptor.id} TARGET DOWN — ${interceptor.weapons}x ${interceptor.spec.weaponType} REMAINING — AWAITING ORDERS`, '');
+        }
       } else {
         interceptor.state = 'RTB';
         addLog(`${interceptor.id} TARGET NEUTRALIZED — RTB`, '');
@@ -58,10 +64,10 @@ export function resolveEngagements() {
       }
     }
 
-    // Check range and fire if no missile already in flight
+    // Check range, radar track, and fire if no missile already in flight
     const d = dist(interceptor, contact);
     const range = interceptor.spec.weaponsRange;
-    if (d <= range && !hasMissileInFlight(interceptor)) {
+    if (d <= range && !hasMissileInFlight(interceptor) && hasRadarTrack(interceptor, contact)) {
       const mSpec = MISSILE_TYPES[interceptor.spec.weaponType];
       const missile = createMissile(interceptor, contact);
       state.missiles.push(missile);
@@ -82,8 +88,13 @@ export function resolveEngagements() {
       interceptor.target = null;
       if (interceptor.weapons > 0) {
         interceptor.state = 'CAP';
-        interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
-        addLog(`${interceptor.id} SPLASH — ${interceptor.weapons}x ${interceptor.spec.weaponType} REMAINING — AWAITING ORDERS`, '');
+        if (interceptor.mission) {
+          interceptor.capPoint = null;
+          addLog(`${interceptor.id} SPLASH — RESUMING ${interceptor.mission.name}`, '');
+        } else {
+          interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
+          addLog(`${interceptor.id} SPLASH — ${interceptor.weapons}x ${interceptor.spec.weaponType} REMAINING — AWAITING ORDERS`, '');
+        }
       } else {
         interceptor.state = 'RTB';
         addLog(`${interceptor.id} WINCHESTER — RTB`, '');
@@ -98,6 +109,36 @@ export function resolveEngagements() {
       addLog(`${interceptor.id} WINCHESTER — NO WEAPONS — RTB`, 'warn');
     }
     // Otherwise: target still active, interceptor keeps pursuing and will re-fire when in range
+  }
+
+  // ── Check threats attacking AWACS ──
+  for (const contact of state.contacts) {
+    if (contact.state !== 'ACTIVE' || !contact.targetAWACS) continue;
+    for (const awacs of getActiveAWACS()) {
+      const d = dist(contact, awacs);
+      if (d <= 5) { // 5nm — attack range
+        contact.state = 'NEUTRALIZED';
+        contact.classification = 'IDENTIFIED';
+        contact.allegiance = 'HOSTILE';
+        contact.classCategory = THREAT_TYPES[contact.type]?.label || contact.type;
+
+        // AWACS takes damage — crashes
+        awacs.fuel = 0;
+        awacs.state = 'CRASHED';
+        clearMission(awacs);
+        state.threatsNeutralized++; // attacker is spent
+
+        addLog(`■ ${contact.id} ATTACKED ${awacs.id} — AWACS DOWN ■`, 'alert');
+        addLog(`■ DATA LINK COVERAGE DEGRADED ■`, 'alert');
+        state.effects.push({ x: awacs.x, y: awacs.y, type: 'impact', startTime: state.gameTime });
+
+        // Release any interceptors targeting this contact
+        for (const i of state.interceptors) {
+          if (i.target === contact) { i.target = null; i.state = 'CAP'; i.capPoint = { x: i.x, y: i.y }; }
+        }
+        break;
+      }
+    }
   }
 
   // ── Check threats reaching cities ──
@@ -137,6 +178,50 @@ export function resolveEngagements() {
       contact.state = 'NEUTRALIZED';
     }
   }
+}
+
+// ── Patrol auto-engagement — patrolling interceptors detect and engage ──
+export function updatePatrolEngagement() {
+  for (const interceptor of state.interceptors) {
+    if (interceptor.state !== 'CAP') continue;
+    if (!interceptor.mission) continue;
+    if (interceptor.weapons <= 0) continue;
+    if (interceptor.type === 'KC-135' || interceptor.type === 'E-3A') continue;
+
+    const wcs = getEffectiveWCS(interceptor);
+    if (wcs === 'HOLD') continue;
+
+    // Already has a missile in flight — don't retask
+    if (state.missiles.some(m => m.shooter === interceptor && m.state === 'FLIGHT')) continue;
+
+    let nearest = null;
+    let nearestDist = Infinity;
+
+    for (const contact of state.contacts) {
+      if (contact.state !== 'ACTIVE' || !contact.detected) continue;
+      if (contact.allegiance === 'FRIENDLY') continue;
+      if (wcs === 'TIGHT' && contact.allegiance !== 'HOSTILE') continue;
+
+      const dx = contact.x - interceptor.x;
+      const dy = contact.y - interceptor.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+
+      if (d <= PATROL_DETECT_RANGE && d < nearestDist) {
+        nearest = contact;
+        nearestDist = d;
+      }
+    }
+
+    if (nearest) {
+      interceptor.state = 'AIRBORNE';
+      interceptor.target = nearest;
+      // Keep mission reference — will return to patrol after kill
+      const wcsLabel = nearest.allegiance === 'UNKNOWN' ? ' [WCS FREE]' : '';
+      addLog(`${interceptor.mission.name} ${interceptor.id} ENGAGING ${nearest.id}${wcsLabel}`, 'alert');
+      return true; // signal auto-pause
+    }
+  }
+  return false;
 }
 
 export function checkWinLose() {
