@@ -80,6 +80,8 @@ export const THREAT_TYPES = {
     label: 'BOMBER',
     points: 100,
     emitting: true,           // carries radar/nav emissions — ESM detectable
+    jamming: true,            // carries ECM jammer
+    jamRange: 30,             // nm — jamming degrades radar within this radius
   },
   FIGHTER: {
     speed: 720,
@@ -110,6 +112,16 @@ export const THREAT_TYPES = {
     boostDuration: 45000,
     emitting: false,          // ballistic — no emissions
   },
+  ARM: {
+    speed: 900,
+    altitudeMin: 500,
+    altitudeMax: 5000,
+    label: 'ARM',
+    points: 250,
+    detectionRange: 50,       // small radar cross-section — reduced detection range
+    emitting: true,           // anti-radiation seeker emits — ESM detectable
+    targetsSite: true,        // homes on radar sites, not cities
+  },
 };
 
 // ═══════════════════════════════════════════
@@ -138,6 +150,7 @@ export const AIRCRAFT_TYPES = {
     weaponsRange: 25,
     radarRange: 60,                   // nm — AN/APG-63
     radarCone: Math.PI / 3,           // 60° half-angle = 120° total
+    radarClassifyTime: 5,             // game-seconds to classify a contact in radar cone
     speedRating: 3,
     rangeRating: 2,
     enduranceRating: 2,
@@ -157,6 +170,7 @@ export const AIRCRAFT_TYPES = {
     weaponsRange: 25,
     radarRange: 40,                   // nm — AN/APG-68
     radarCone: Math.PI / 4,           // 45° half-angle = 90° total
+    radarClassifyTime: 8,             // game-seconds to classify a contact in radar cone
     speedRating: 2,
     rangeRating: 2,
     enduranceRating: 3,
@@ -167,7 +181,7 @@ export const AIRCRAFT_TYPES = {
     name: 'F-106A Delta Dart',
     callsign: 'DART',
     role: 'INTERCEPTOR',
-    desc: 'Fast with nuclear Genie rocket — one shot, guaranteed kill. Old radar, short range.',
+    desc: 'Fast with nuclear Genie rocket — one shot, near-guaranteed kill. Fire control computes lead. Old radar.',
     speed: 850,
     fuelCapacity: 100,
     fuelBurnRate: 0.065,    // ~51s real endurance, 177nm round trip
@@ -176,6 +190,7 @@ export const AIRCRAFT_TYPES = {
     weaponsRange: 8,
     radarRange: 30,                   // nm — MA-1 (old tech)
     radarCone: Math.PI / 6,           // 30° half-angle = 60° total
+    radarClassifyTime: 12,            // game-seconds to classify (old radar, slow)
     speedRating: 3,
     rangeRating: 1,
     enduranceRating: 1,
@@ -244,6 +259,7 @@ export const MISSILE_TYPES = {
     callsign: 'FOX ONE — GENIE',
     seekerRange: 0,       // no seeker
     seekerCone: 0,
+    detonationRadius: 3,  // nm — nuclear proximity detonation (much larger than conventional 1.5nm)
   },
 };
 
@@ -253,6 +269,7 @@ export const PK_TARGET_MODIFIERS = {
   FIGHTER: 0.65,
   CRUISE_MISSILE: 0.50,
   ICBM: 0.30,
+  ARM: 0.40,              // small, fast — hard to hit
 };
 
 // Destroy vs cripple chance on hit (chance to destroy outright)
@@ -261,6 +278,7 @@ export const DAMAGE_DESTROY_CHANCE = {
   FIGHTER: 0.75,
   CRUISE_MISSILE: 1.0,   // always destroy
   ICBM: 1.0,             // always destroy
+  ARM: 1.0,              // always destroy (small missile)
 };
 
 export const MISSILE_ARRIVAL_DIST = 1.5; // nm — missile "arrives" at target
@@ -277,6 +295,16 @@ export const EMCON_RANGE_MULT = { ACTIVE: 1.0, REDUCED: 0.5, SILENT: 0 };
 // ESM (Electronic Support Measures) — passive detection of emitting threats
 export const ESM_DETECT_RANGE = 120;      // nm — passive detection range for emitting threats
 export const ESM_ALPHA = 0.35;            // blip visibility for ESM-only contacts (dim, uncertain)
+
+// ECM (Electronic Countermeasures) — jamming
+export const JAM_ALPHA_MULT = 0.5;        // blip alpha multiplied when jammed
+export const JAM_CLASSIFY_MULT = 0.5;     // sweep classification counts at half rate when jammed
+export const JAM_BURNTHROUGH = 0.4;       // at 40% of radar range, jamming is overcome
+export const JAM_POSITION_JITTER = 8;     // nm — max position error on jammed contacts
+
+// SEAD
+export const ARM_IMPACT_RANGE = 3;        // nm — ARM destroys radar site within this range
+export const ARM_SPAWN_CHANCE = 0.35;     // chance per wave 3+ bomber spawn to also spawn an ARM
 
 // Data link & radar
 export const DATA_LINK_RANGE = 200;        // nm from AWACS — fighters within this share sensor data

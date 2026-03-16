@@ -3,7 +3,7 @@
 A browser-based cold-war NORAD air defense simulation. The player manages radar contacts, scrambles interceptors, and defends North American cities against escalating waves of airborne threats. Prioritizes the "control tower" feel — managing information and making decisions, not clicking frantically.
 
 ## Project Status
-**Phase: 11A complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post. Phase 6 added IFF pipeline + civilian traffic. Phase 7 added WCS (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements. Phase 8 added time compression (1-16x), auto-pause on critical events, game clock. Phase 9A added turnaround time, sortie limits, fuel range envelopes. Phase 9B added missiles as map entities, Pk, damage model. Phase 9C added tanker support, patrol missions (define/assign/auto-loop), ad-hoc waypoints (shift+right-click), patrol auto-engagement.
+**Phase: 11B complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post. Phase 6 added IFF pipeline + civilian traffic. Phase 7 added WCS (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements. Phase 8 added time compression (1-16x), auto-pause on critical events, game clock. Phase 9A added turnaround time, sortie limits, fuel range envelopes. Phase 9B added missiles as map entities, Pk, damage model. Phase 9C added tanker support, patrol missions (define/assign/auto-loop), ad-hoc waypoints (shift+right-click), patrol auto-engagement.
 
 ## Tech Stack
 - **Vanilla JavaScript** + **HTML5 Canvas** — no frameworks, no build step
@@ -58,7 +58,7 @@ norad-watch/
 - Fuel system with bingo warning, crash on empty, CAP orbits, RTB
 - Full UI panels: contact list, asset status, selection detail, event log
 - Left-click select / right-click action input scheme
-- 4 threat types: Bomber, Fighter (evasion), Cruise Missile (reduced detection), ICBM (boost phase)
+- 5 threat types: Bomber (ECM jammer), Fighter (evasion), Cruise Missile (reduced detection), ICBM (boost phase), ARM (homes on emitting radar sites)
 - 5-wave escalation system, DEFCON 5→1, end-game scoring overlay, restart
 - Aircraft selection on scramble (per-aircraft pick from base detail panel)
 - **Phase 5:** Northeast ADIZ sector map (500nm across) with NE US coastline
@@ -154,12 +154,13 @@ norad-watch/
 - **Phase 11A:** Hit detection ✓ — `fromCanvas` accounts for zoom+pan, so all click/right-click targeting works at any zoom level.
 - **Phase 11A:** Home key resets zoom to 1x and pan to center. Auto-reset on game restart.
 
-### Phase 11B: Electronic Warfare
+### Phase 11B: Electronic Warfare ✓
 **Goal:** EMCON becomes a real tactical choice
 
-1. **ECM/Jamming** — Threat aircraft carry jammers that degrade your radar. Contacts appear fuzzy, uncertain position, possible false tracks.
-2. **Decoys** — Threats launch decoys that appear as additional contacts on radar. Must be sorted from real threats.
-3. **SEAD threats** — Anti-radiation missiles that target your radar stations when emitting. EMCON SILENT protects stations but blinds you. Creates active/passive tension.
+- **Phase 11B:** ECM/Jamming ✓ — Bombers carry jammers (30nm radius). Ground radar contacts near a jammer get reduced alpha, position jitter (blips wobble), and slower classification (sweep counts at half rate). Burn-through at 40% of radar range overcomes jamming. "ECM ACTIVE" in status bar, "ECM" tag in contact list.
+- **Phase 11B:** SEAD ✓ — New ARM (Anti-Radiation Missile) threat type: Mach 2.5, low altitude, homes on nearest emitting radar site. Spawns from Wave 3+ alongside bombers (35% chance) when EMCON is not SILENT. Impact permanently destroys the radar site (shown as "DESTROYED" on map, no coverage, no sweep). Auto-pause + alert on radar site loss.
+- **Phase 11B:** EMCON tactical tension ✓ — EMCON ACTIVE = full radar but vulnerable to ARM. EMCON SILENT = safe from ARM but blind to non-emitting threats. EMCON REDUCED = middle ground. ESM still detects ARM (it emits seeker). Player must balance visibility vs survivability.
+- **Dropped:** Decoys — not authentic to cold-war NORAD context per CMANO research.
 
 ### Phase 11C: Formation Tactics
 **Goal:** Layered, coordinated threats
@@ -204,7 +205,7 @@ norad-watch/
 | 9C    | CAP delegation, tankers, waypoints | "Set it and forget it" (done) |
 | 10    | Aircraft radars, data links, missile seekers, EMCON, ESM, AWACS hunting | "I can't see everything" (done) |
 | 11A   | Map zoom + pan | "Let me look closer" (done) |
-| 11B   | ECM, decoys, SEAD | "They're fighting back smart" |
+| 11B   | ECM jamming, SEAD/ARM | "They're fighting back smart" (done) |
 | 11C   | Formation tactics, coordinated strikes | "They're organized" |
 | 12A   | Sound design | "I can hear the tension" |
 | 12B   | Difficulty scaling, scenario variety | "Play it again" |

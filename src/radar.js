@@ -4,6 +4,7 @@ import {
   AWACS_DETECTION_RANGE, THREAT_TYPES, SWEEPS_TO_CLASSIFY, AIRCRAFT_TYPES,
   TANKER_REFUEL_RANGE, DATA_LINK_RANGE,
   EMCON_RANGE_MULT, ESM_DETECT_RANGE, ESM_ALPHA,
+  JAM_ALPHA_MULT, JAM_CLASSIFY_MULT, JAM_BURNTHROUGH, JAM_POSITION_JITTER,
 } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
@@ -45,6 +46,18 @@ export function drawRadarSites(ctx) {
 
   for (const site of state.radarSites) {
     const [sx, sy] = toCanvas(site.x, site.y);
+
+    // Destroyed site — show wreckage
+    if (site.destroyed) {
+      ctx.fillStyle = '#441111';
+      ctx.fillRect(sx - 2, sy - 2, 4, 4);
+      ctx.font = '7px "Courier New", monospace';
+      ctx.fillStyle = '#661111';
+      ctx.fillText(`${site.name}`, sx + 5, sy - 4);
+      ctx.fillText('DESTROYED', sx + 5, sy + 5);
+      continue;
+    }
+
     const effectiveRange = site.rangeNm * emconMult;
     const rPx = effectiveRange * pxPerNm;
 
@@ -106,7 +119,7 @@ export function drawSweep(ctx, gameTime, sweepTime) {
     const adjustedTime = sweepTime + (site.sweepOffset || 0);
     site.sweepAngle = ((adjustedTime % SWEEP_PERIOD) / SWEEP_PERIOD) * Math.PI * 2;
 
-    if (emconMult <= 0) continue; // SILENT — no sweep
+    if (emconMult <= 0 || site.destroyed) continue; // SILENT or destroyed — no sweep
 
     const [sx, sy] = toCanvas(site.x, site.y);
     const maxR = site.rangeNm * emconMult * pxPerNm;
@@ -162,15 +175,45 @@ export function drawSweep(ctx, gameTime, sweepTime) {
 // BLIP VISIBILITY
 // ═══════════════════════════════════════════
 
+// Check if a position is being jammed by any active jammer
+// Returns jamming strength 0-1 (0 = no jamming, 1 = full jamming)
+function getJammingAt(x, y, radarX, radarY, radarRange) {
+  let maxJam = 0;
+  for (const contact of state.contacts) {
+    if (contact.state !== 'ACTIVE' || contact.isCivilian) continue;
+    const spec = THREAT_TYPES[contact.type];
+    if (!spec || !spec.jamming) continue;
+
+    // Jammer affects contacts near itself
+    const dx = x - contact.x;
+    const dy = y - contact.y;
+    const distToJammer = Math.sqrt(dx * dx + dy * dy);
+    if (distToJammer > spec.jamRange) continue;
+
+    // Burn-through: jamming ineffective at close radar range
+    const rdx = x - radarX;
+    const rdy = y - radarY;
+    const distToRadar = Math.sqrt(rdx * rdx + rdy * rdy);
+    if (distToRadar < radarRange * JAM_BURNTHROUGH) continue;
+
+    // Jamming strength — stronger closer to jammer
+    const jamStrength = 1 - (distToJammer / spec.jamRange);
+    maxJam = Math.max(maxJam, jamStrength);
+  }
+  return maxJam;
+}
+
 function updateBlipVisibility(contact, sweepTime) {
   const spec = (!contact.isCivilian && contact.type) ? THREAT_TYPES[contact.type] : null;
   let maxAlpha = 0;
   let freshSweep = false;
+  let isJammed = false;
   const emconMult = EMCON_RANGE_MULT[state.emcon] || 1.0;
 
   // Check each radar site's sweep (affected by EMCON)
   for (const site of state.radarSites) {
     if (emconMult <= 0) break; // SILENT — no ground radar detection
+    if (site.destroyed) continue; // SEAD destroyed this site
 
     const dx = contact.x - site.x;
     const dy = contact.y - site.y;
@@ -182,6 +225,9 @@ function updateBlipVisibility(contact, sweepTime) {
     const effectiveRange = baseRange * emconMult;
 
     if (dist > effectiveRange) continue;
+
+    // Check jamming at this contact's position relative to this radar
+    const jamStrength = getJammingAt(contact.x, contact.y, site.x, site.y, effectiveRange);
 
     // Check if this site's sweep has passed over the contact
     const [sx, sy] = toCanvas(site.x, site.y);
@@ -198,9 +244,12 @@ function updateBlipVisibility(contact, sweepTime) {
     if (angleDiff < 0.15) {
       const prev = state.blipVisibility[siteKey];
       const wasZero = !prev || prev.alpha <= 0;
-      state.blipVisibility[siteKey] = { alpha: 1, lastSweepTime: sweepTime };
+      // Jamming reduces peak alpha
+      const peakAlpha = jamStrength > 0 ? Math.max(0.3, 1 - jamStrength * JAM_ALPHA_MULT) : 1;
+      state.blipVisibility[siteKey] = { alpha: peakAlpha, lastSweepTime: sweepTime };
       if (wasZero) freshSweep = true;
-      maxAlpha = 1;
+      if (jamStrength > 0) isJammed = true;
+      maxAlpha = Math.max(maxAlpha, peakAlpha);
     } else if (state.blipVisibility[siteKey]) {
       const elapsed = sweepTime - state.blipVisibility[siteKey].lastSweepTime;
       const alpha = Math.max(0, 1 - (elapsed / BLIP_FADE_TIME));
@@ -208,6 +257,9 @@ function updateBlipVisibility(contact, sweepTime) {
       maxAlpha = Math.max(maxAlpha, alpha);
     }
   }
+
+  // Track jamming state on contact for rendering jitter
+  contact._jammed = isJammed;
 
   // AWACS provides continuous detection — persistent track, instant classification
   for (const awacs of getActiveAWACS()) {
@@ -231,6 +283,8 @@ function updateBlipVisibility(contact, sweepTime) {
   }
 
   // Fighter radar detection — data-linked fighters contribute to shared picture
+  // Also: fighter radar can classify contacts over time
+  let bestClassifyRate = 0;
   for (const interceptor of state.interceptors) {
     if (!['AIRBORNE', 'CAP', 'ID_MISSION', 'REFUELING'].includes(interceptor.state)) continue;
     if (isInRadarCone(interceptor, contact)) {
@@ -239,7 +293,38 @@ function updateBlipVisibility(contact, sweepTime) {
         maxAlpha = Math.max(maxAlpha, 0.7);
         if (!contact.detected) freshSweep = true;
       }
+      // Track best radar classify rate among fighters with this contact in cone
+      const classifyTime = AIRCRAFT_TYPES[interceptor.type]?.radarClassifyTime;
+      if (classifyTime) {
+        bestClassifyRate = Math.max(bestClassifyRate, 1 / classifyTime);
+      }
     }
+  }
+
+  // Fighter radar classification — accumulate progress toward CLASSIFIED
+  if (bestClassifyRate > 0 && contact.detected && contact.classification === 'UNKNOWN') {
+    const now = state.gameTime;
+    const lastUpdate = contact._radarClassifyLast || now;
+    const dSec = (now - lastUpdate) / 1000;
+    contact._radarClassifyLast = now;
+
+    if (dSec > 0 && dSec < 5) { // sanity cap
+      // Jamming halves classification rate
+      const jamMult = isJammed ? JAM_CLASSIFY_MULT : 1;
+      contact._radarClassifyProgress = (contact._radarClassifyProgress || 0) + bestClassifyRate * dSec * jamMult;
+
+      if (contact._radarClassifyProgress >= 1) {
+        contact.classification = 'CLASSIFIED';
+        contact.classCategory = getClassCategory(contact.speed, contact.altitude);
+        addLog(`${contact.id} RADAR CLASSIFIED — ${contact.classCategory}`, 'warn');
+        if (contact.classCategory === 'BALLISTIC') {
+          contact.allegiance = 'HOSTILE';
+          addLog(`${contact.id} BALLISTIC TRACK — AUTO-DESIGNATED HOSTILE`, 'alert');
+        }
+      }
+    }
+  } else if (bestClassifyRate === 0) {
+    contact._radarClassifyLast = state.gameTime; // reset timer when not in any cone
   }
 
   // ESM — passive detection of emitting threats (bearing only, dim track)
@@ -256,10 +341,19 @@ function updateBlipVisibility(contact, sweepTime) {
     }
   }
 
-  // Count sweep passes for classification
+  // Count sweep passes for classification (jammed = half rate)
   if (freshSweep && contact.detected) {
-    contact.sweepsSeen++;
-    checkAutoClassify(contact);
+    if (isJammed) {
+      contact._jamSweepAccum = (contact._jamSweepAccum || 0) + JAM_CLASSIFY_MULT;
+      if (contact._jamSweepAccum >= 1) {
+        contact._jamSweepAccum -= 1;
+        contact.sweepsSeen++;
+        checkAutoClassify(contact);
+      }
+    } else {
+      contact.sweepsSeen++;
+      checkAutoClassify(contact);
+    }
   }
 
   return maxAlpha;
@@ -315,9 +409,18 @@ export function drawContacts(ctx, sweepTime) {
       }
     }
 
-    const [bx, by] = toCanvas(contact.x, contact.y);
+    let [bx, by] = toCanvas(contact.x, contact.y);
     const color = getAllegianceColor(contact);
     const size = 5;
+
+    // Jamming jitter — wobble blip position
+    if (contact._jammed) {
+      const pxPerNm = nmToPixels();
+      const jitterNm = JAM_POSITION_JITTER * 0.5; // visual jitter (half max for readability)
+      const t = sweepTime * 0.003 + contact.id.charCodeAt(contact.id.length - 1);
+      bx += Math.sin(t * 2.3) * jitterNm * pxPerNm * 0.3;
+      by += Math.cos(t * 1.7) * jitterNm * pxPerNm * 0.3;
+    }
 
     ctx.save();
     ctx.globalAlpha = alpha;

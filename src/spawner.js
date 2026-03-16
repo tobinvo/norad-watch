@@ -1,4 +1,4 @@
-import { WAVE_BREAK, WAVE_FIRST_DELAY } from './constants.js';
+import { WAVE_BREAK, WAVE_FIRST_DELAY, ARM_SPAWN_CHANCE } from './constants.js';
 import { state } from './state.js';
 import { createThreat, getActiveAWACS } from './entities.js';
 import { addLog } from './hud.js';
@@ -68,6 +68,26 @@ export function trySpawnThreat(gameTime) {
   }
 
   state.contacts.push(threat);
+
+  // Wave 3+ BOMBERS may spawn an accompanying ARM when radar is emitting
+  if (state.currentWave >= 3 && typeName === 'BOMBER' && state.emcon !== 'SILENT') {
+    const activeSites = state.radarSites.filter(s => !s.destroyed);
+    if (activeSites.length > 0 && Math.random() < ARM_SPAWN_CHANCE) {
+      // Spawn ARM from same edge, aimed at a radar site
+      const armSpawn = getSpawnPosition(pickSpawnEdge());
+      const targetSite = activeSites[Math.floor(Math.random() * activeSites.length)];
+      // Use a dummy city as target for createThreat (heading calc), then override
+      const arm = createThreat(armSpawn.x, armSpawn.y, targetCity, 'ARM');
+      arm.targetSite = true;
+      // Re-aim toward the radar site
+      const adx = targetSite.x - armSpawn.x;
+      const ady = targetSite.y - armSpawn.y;
+      arm.heading = Math.atan2(ady, adx);
+      arm.hdgDeg = Math.round(((90 - arm.heading * 180 / Math.PI) + 360) % 360);
+      state.contacts.push(arm);
+    }
+  }
+
   state.totalSpawned++;
   state.waveSpawnIndex++;
   state.lastSpawnTime = gameTime;

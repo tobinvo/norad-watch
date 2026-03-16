@@ -330,6 +330,26 @@ export function moveContact(contact, dSec) {
     }
   }
 
+  // ARM homing — re-home toward nearest emitting radar site
+  if (contact.targetSite) {
+    const emittingSites = state.radarSites.filter(s => !s.destroyed && state.emcon !== 'SILENT');
+    if (emittingSites.length > 0) {
+      let nearest = emittingSites[0];
+      let bestDist = Infinity;
+      for (const s of emittingSites) {
+        const dx = s.x - contact.x;
+        const dy = s.y - contact.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < bestDist) { nearest = s; bestDist = d; }
+      }
+      contact.heading = Math.atan2(nearest.y - contact.y, nearest.x - contact.x);
+      contact.hdgDeg = Math.round(((90 - contact.heading * 180 / Math.PI) + 360) % 360);
+    } else {
+      // No emitting sites — ARM goes ballistic (fixed heading)
+      contact.targetSite = false;
+    }
+  }
+
   // Fighter evasion — jink when interceptor is closing
   if (!contact.isCivilian) {
     const spec = THREAT_TYPES[contact.type];
@@ -352,6 +372,52 @@ export function moveContact(contact, dSec) {
 
   contact.x += Math.cos(contact.heading) * nmPerSec * dSec;
   contact.y += Math.sin(contact.heading) * nmPerSec * dSec;
+}
+
+// Compute lead intercept point — where to fly to meet a moving target
+function computeInterceptPoint(interceptor, target) {
+  if (target.state !== 'ACTIVE') return { x: target.x, y: target.y };
+
+  const dx = target.x - interceptor.x;
+  const dy = target.y - interceptor.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  const iSpeed = interceptor.speed / 3600; // nm/s
+  const tSpeed = target.speed / 3600;
+
+  // If interceptor is faster, compute lead point
+  // Use iterative approximation: estimate time to intercept, predict target position
+  if (iSpeed > 0 && dist > 0) {
+    // First estimate: time = distance / closing speed
+    let timeEst = dist / iSpeed;
+
+    // Refine twice — predict target pos, recalculate time
+    for (let i = 0; i < 2; i++) {
+      const predX = target.x + Math.cos(target.heading) * tSpeed * timeEst;
+      const predY = target.y + Math.sin(target.heading) * tSpeed * timeEst;
+      const pdx = predX - interceptor.x;
+      const pdy = predY - interceptor.y;
+      const predDist = Math.sqrt(pdx * pdx + pdy * pdy);
+      timeEst = predDist / iSpeed;
+    }
+
+    // Final predicted position
+    const predX = target.x + Math.cos(target.heading) * tSpeed * timeEst;
+    const predY = target.y + Math.sin(target.heading) * tSpeed * timeEst;
+
+    // Don't lead too far — cap at 2x current distance (prevents overshooting on very slow closures)
+    const leadDx = predX - target.x;
+    const leadDy = predY - target.y;
+    const leadDist = Math.sqrt(leadDx * leadDx + leadDy * leadDy);
+    if (leadDist > dist * 2) {
+      // Too far ahead — fall back to pure pursuit
+      return { x: target.x, y: target.y };
+    }
+
+    return { x: predX, y: predY };
+  }
+
+  return { x: target.x, y: target.y };
 }
 
 export function moveInterceptor(interceptor, dSec) {
@@ -417,11 +483,15 @@ export function moveInterceptor(interceptor, dSec) {
   let targetX, targetY;
 
   if (interceptor.state === 'AIRBORNE' && interceptor.target) {
-    targetX = interceptor.target.x;
-    targetY = interceptor.target.y;
+    const t = interceptor.target;
+    const ip = computeInterceptPoint(interceptor, t);
+    targetX = ip.x;
+    targetY = ip.y;
   } else if (interceptor.state === 'ID_MISSION' && interceptor.idTarget) {
-    targetX = interceptor.idTarget.x;
-    targetY = interceptor.idTarget.y;
+    const t = interceptor.idTarget;
+    const ip = computeInterceptPoint(interceptor, t);
+    targetX = ip.x;
+    targetY = ip.y;
   } else if (interceptor.state === 'CAP') {
     const wp = getCurrentWaypoint(interceptor);
     if (wp) {
@@ -618,7 +688,23 @@ export function createMissile(interceptor, contact) {
   const num = state.nextMissileNum++;
   const weaponType = interceptor.spec.weaponType;
   const mSpec = MISSILE_TYPES[weaponType];
-  const heading = Math.atan2(contact.y - interceptor.y, contact.x - interceptor.x);
+
+  // Lead calculation — predict where target will be at intercept time
+  let heading;
+  if (mSpec.guidance === 'UNGUIDED') {
+    // Compute lead angle for unguided weapons (fire control computer)
+    const dx = contact.x - interceptor.x;
+    const dy = contact.y - interceptor.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const mslSpeed = mSpec.speed / 3600; // nm/s
+    const flightTime = dist / mslSpeed;
+    const tgtSpeed = contact.speed / 3600;
+    const predictX = contact.x + Math.cos(contact.heading) * tgtSpeed * flightTime;
+    const predictY = contact.y + Math.sin(contact.heading) * tgtSpeed * flightTime;
+    heading = Math.atan2(predictY - interceptor.y, predictX - interceptor.x);
+  } else {
+    heading = Math.atan2(contact.y - interceptor.y, contact.x - interceptor.x);
+  }
 
   return {
     id: `MSL-${num}`,
@@ -698,9 +784,11 @@ export function moveMissile(missile, dSec) {
   missile.x += Math.cos(missile.heading) * moveAmt;
   missile.y += Math.sin(missile.heading) * moveAmt;
 
-  // Check arrival
+  // Check arrival — use detonation radius if specified (nuclear Genie = larger)
+  const mSpecArrival = MISSILE_TYPES[missile.type];
+  const arrivalDist = mSpecArrival.detonationRadius || MISSILE_ARRIVAL_DIST;
   const d = distXY(missile, target);
-  if (d <= MISSILE_ARRIVAL_DIST) {
+  if (d <= arrivalDist) {
     resolveMissileArrival(missile);
     return;
   }

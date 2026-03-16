@@ -1,4 +1,4 @@
-import { CITY_IMPACT_RADIUS, THREAT_TYPES, MISSILE_TYPES, PATROL_DETECT_RANGE } from './constants.js';
+import { CITY_IMPACT_RADIUS, THREAT_TYPES, MISSILE_TYPES, PATROL_DETECT_RANGE, ARM_IMPACT_RANGE } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
 import { isInProsecutionZone } from './sector.js';
@@ -109,6 +109,35 @@ export function resolveEngagements() {
       addLog(`${interceptor.id} WINCHESTER — NO WEAPONS — RTB`, 'warn');
     }
     // Otherwise: target still active, interceptor keeps pursuing and will re-fire when in range
+  }
+
+  // ── Check ARM impacts on radar sites ──
+  for (const contact of state.contacts) {
+    if (contact.state !== 'ACTIVE' || contact.type !== 'ARM' || !contact.targetSite) continue;
+    for (const site of state.radarSites) {
+      if (site.destroyed) continue;
+      const dx = contact.x - site.x;
+      const dy = contact.y - site.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d <= ARM_IMPACT_RANGE) {
+        contact.state = 'NEUTRALIZED';
+        contact.classification = 'IDENTIFIED';
+        contact.allegiance = 'HOSTILE';
+        contact.classCategory = 'ARM';
+        site.destroyed = true;
+        state.threatsNeutralized++;
+
+        addLog(`■ ${contact.id} ARM IMPACT — ${site.name} DESTROYED ■`, 'alert');
+        addLog(`■ RADAR COVERAGE DEGRADED ■`, 'alert');
+        state.effects.push({ x: site.x, y: site.y, type: 'impact', startTime: state.gameTime });
+
+        // Release interceptors targeting this contact
+        for (const i of state.interceptors) {
+          if (i.target === contact) { i.target = null; i.state = 'CAP'; i.capPoint = { x: i.x, y: i.y }; }
+        }
+        break;
+      }
+    }
   }
 
   // ── Check threats attacking AWACS ──

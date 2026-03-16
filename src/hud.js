@@ -92,6 +92,9 @@ export function renderContacts() {
     if (isActive && contact.damaged) {
       statusText = 'DMG ' + statusText;
     }
+    if (isActive && !contact.isCivilian && THREAT_TYPES[contact.type]?.jamming) {
+      statusText = 'ECM ' + statusText;
+    }
 
     tr.innerHTML = `
       <td>${contact.id}</td>
@@ -569,6 +572,7 @@ export function renderStatusBar() {
 
   const activeContacts = state.contacts.filter(t => t.state === 'ACTIVE' && t.detected && !t.isCivilian).length;
   const unknownContacts = state.contacts.filter(t => t.state === 'ACTIVE' && t.detected && t.allegiance === 'UNKNOWN').length;
+  const activeJammers = state.contacts.some(t => t.state === 'ACTIVE' && !t.isCivilian && THREAT_TYPES[t.type]?.jamming);
   const statusEl = document.getElementById('gameStatus');
 
   if (state.paused) {
@@ -584,7 +588,8 @@ export function renderStatusBar() {
     statusEl.textContent = `■ ${unknownContacts} UNKNOWN CONTACT${unknownContacts > 1 ? 'S' : ''} ■`;
     statusEl.style.color = '#ff8800';
   } else if (activeContacts > 0) {
-    statusEl.textContent = `■ ${activeContacts} ACTIVE THREAT${activeContacts > 1 ? 'S' : ''} ■`;
+    const jamLabel = activeJammers ? ' — ECM ACTIVE' : '';
+    statusEl.textContent = `■ ${activeContacts} ACTIVE THREAT${activeContacts > 1 ? 'S' : ''}${jamLabel} ■`;
     statusEl.style.color = '#ff4444';
   } else {
     statusEl.textContent = '■ STANDING BY ■';
