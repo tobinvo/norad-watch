@@ -151,9 +151,10 @@ export function renderAssets() {
       const targetInfo = interceptor.target ? ` → ${interceptor.target.id}` : '';
       const idInfo = interceptor.idTarget ? ` ID:${interceptor.idTarget.id}` : '';
       const capInfo = interceptor.state === 'CAP' ? ' CAP' : '';
+      const refuelInfo = interceptor.state === 'REFUELING' ? ` TANK:${interceptor.refuelTanker?.id || '?'}` : '';
       const mslTag = state.missiles.some(m => m.shooter === interceptor && m.state === 'FLIGHT') ? ' MSL' : '';
-      const stateLabel = interceptor.state === 'ID_MISSION' ? 'ID' : interceptor.state;
-      html += `<div class="asset-line">${interceptor.id} ${stateLabel}${targetInfo}${idInfo}${capInfo}${mslTag} ${fuelBarHTML(interceptor)}</div>`;
+      const stateLabel = interceptor.state === 'ID_MISSION' ? 'ID' : interceptor.state === 'REFUELING' ? 'REFUEL' : interceptor.state;
+      html += `<div class="asset-line">${interceptor.id} ${stateLabel}${targetInfo}${idInfo}${capInfo}${refuelInfo}${mslTag} ${fuelBarHTML(interceptor)}</div>`;
     }
 
     block.innerHTML = html;
@@ -240,7 +241,7 @@ export function renderSelectionDetail() {
     let html = `<div class="detail-header">▶ ${i.id}</div>`;
     html += `<div class="detail-row"><span class="detail-label">TYPE</span><span class="detail-value friendly">${i.spec.name}</span></div>`;
 
-    const stateLabel = i.state === 'ID_MISSION' ? 'ID MISSION' : i.state;
+    const stateLabel = i.state === 'ID_MISSION' ? 'ID MISSION' : i.state === 'REFUELING' ? 'REFUELING' : i.state;
     html += `<div class="detail-row"><span class="detail-label">STATE</span><span class="detail-value">${stateLabel}</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">FUEL</span><span class="detail-value ${fuelPct <= 25 ? 'hostile' : ''}">${fuelPct}%</span></div>`;
     html += `<div class="detail-row"><span class="detail-label">WEAPONS</span><span class="detail-value">${i.weapons}x ${i.spec.weaponType || 'NONE'}</span></div>`;
@@ -267,6 +268,24 @@ export function renderSelectionDetail() {
       html += `<div class="detail-row"><span class="detail-label">ID TGT</span><span class="detail-value" style="color: #ff8800">${i.idTarget.id}</span></div>`;
     }
 
+    // Tanker: show how many fighters are refueling nearby
+    if (i.type === 'KC-135' && i.state === 'CAP') {
+      const nearbyFighters = state.interceptors.filter(f => {
+        if (f === i || f.type === 'KC-135' || f.type === 'E-3A') return false;
+        const dx = f.x - i.x;
+        const dy = f.y - i.y;
+        return Math.sqrt(dx * dx + dy * dy) <= 5;
+      });
+      if (nearbyFighters.length > 0) {
+        html += `<div class="detail-row"><span class="detail-label">REFUELING</span><span class="detail-value friendly">${nearbyFighters.length} AIRCRAFT</span></div>`;
+      }
+    }
+
+    // Fighter diverting to tanker
+    if (i.refuelTanker) {
+      html += `<div class="detail-row"><span class="detail-label">TANKER</span><span class="detail-value" style="color: #c896ff">${i.refuelTanker.id}</span></div>`;
+    }
+
     if (!['RTB', 'CRASHED', 'TURNAROUND', 'MAINTENANCE'].includes(i.state)) {
       html += `<div class="detail-assigned" style="color: var(--yellow-warn)">R-CLICK: ENGAGE/ID/RTB | W = CYCLE WCS</div>`;
       html += `<div class="detail-actions"><button class="rtb-btn" data-interceptor-id="${i.id}">RTB</button></div>`;
@@ -274,24 +293,11 @@ export function renderSelectionDetail() {
 
     el.innerHTML = html;
 
-    // Bind RTB button
-    const rtbBtn = el.querySelector('.rtb-btn');
-    if (rtbBtn) {
-      rtbBtn.addEventListener('click', () => {
-        i.state = 'RTB';
-        i.target = null;
-        i.idTarget = null;
-        i.capPoint = null;
-        addLog(`${i.id} — RTB ORDERED`, '');
-        state.selectedInterceptor = null;
-      });
-    }
-
   } else if (state.selectedBase) {
     const b = state.selectedBase;
     const ready = b.interceptors.filter(i => i.state === 'READY');
     const airborne = b.interceptors.filter(i =>
-      i.state !== 'READY' && i.state !== 'CRASHED' && i.state !== 'TURNAROUND' && i.state !== 'MAINTENANCE'
+      !['READY', 'CRASHED', 'TURNAROUND', 'MAINTENANCE'].includes(i.state)
     );
     const turning = b.interceptors.filter(i => i.state === 'TURNAROUND');
     const maint = b.interceptors.filter(i => i.state === 'MAINTENANCE');
@@ -330,9 +336,10 @@ export function renderSelectionDetail() {
       for (const i of airborne) {
         const targetInfo = i.target ? ` → ${i.target.id}` : '';
         const idInfo = i.idTarget ? ` ID:${i.idTarget.id}` : '';
+        const refuelInfo = i.state === 'REFUELING' ? ` TANK:${i.refuelTanker?.id || '?'}` : '';
         const fuelPct = Math.round((i.fuel / i.fuelMax) * 100);
-        const stateLabel = i.state === 'ID_MISSION' ? 'ID' : i.state;
-        html += `<div class="detail-assigned">${i.id} ${stateLabel}${targetInfo}${idInfo} FUEL:${fuelPct}%</div>`;
+        const stateLabel = i.state === 'ID_MISSION' ? 'ID' : i.state === 'REFUELING' ? 'REFUEL' : i.state;
+        html += `<div class="detail-assigned">${i.id} ${stateLabel}${targetInfo}${idInfo}${refuelInfo} FUEL:${fuelPct}%</div>`;
       }
     }
 
@@ -384,6 +391,27 @@ export function initHud() {
     if (interceptor) {
       state.selectedReadyInterceptor = (state.selectedReadyInterceptor === interceptor) ? null : interceptor;
     }
+  });
+
+  // RTB button — uses mousedown (not click) because innerHTML rebuilds every frame
+  // can destroy the button between mousedown and mouseup, preventing click from firing
+  const detailEl = document.getElementById('selectionDetail');
+  detailEl.addEventListener('mousedown', (e) => {
+    const btn = e.target.closest('.rtb-btn');
+    if (!btn) return;
+    e.stopPropagation();
+    const interceptor = state.selectedInterceptor;
+    if (!interceptor || ['RTB', 'CRASHED', 'TURNAROUND', 'MAINTENANCE'].includes(interceptor.state)) return;
+    interceptor.state = 'RTB';
+    interceptor.target = null;
+    interceptor.idTarget = null;
+    interceptor.capPoint = null;
+    interceptor.refuelTanker = null;
+    interceptor.preDivertState = null;
+    interceptor.preDivertTarget = null;
+    interceptor.preDivertCapPoint = null;
+    addLog(`${interceptor.id} — RTB ORDERED`, '');
+    state.selectedInterceptor = null;
   });
 }
 

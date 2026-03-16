@@ -186,6 +186,10 @@ function handleRightClick(e) {
         interceptor.target = contactUnder;
         interceptor.idTarget = null;
         interceptor.capPoint = null;
+        interceptor.refuelTanker = null;
+        interceptor.preDivertState = null;
+        interceptor.preDivertTarget = null;
+        interceptor.preDivertCapPoint = null;
         const wcsLabel = contactUnder.allegiance === 'UNKNOWN' ? ' [WCS FREE]' : '';
         addLog(`${interceptor.id} RETASKED → ${contactUnder.id}${wcsLabel}`, 'alert');
       } else if (contactUnder.allegiance === 'UNKNOWN') {
@@ -195,6 +199,10 @@ function handleRightClick(e) {
         interceptor.idProgress = 0;
         interceptor.target = null;
         interceptor.capPoint = null;
+        interceptor.refuelTanker = null;
+        interceptor.preDivertState = null;
+        interceptor.preDivertTarget = null;
+        interceptor.preDivertCapPoint = null;
         addLog(`${interceptor.id} — VISUAL ID ON ${contactUnder.id}`, 'alert');
       } else {
         addLog(`WCS ${wcs} — CANNOT ENGAGE ${contactUnder.id}`, 'warn');
@@ -206,6 +214,10 @@ function handleRightClick(e) {
       interceptor.target = null;
       interceptor.idTarget = null;
       interceptor.capPoint = null;
+      interceptor.refuelTanker = null;
+      interceptor.preDivertState = null;
+      interceptor.preDivertTarget = null;
+      interceptor.preDivertCapPoint = null;
       addLog(`${interceptor.id} — RTB ORDERED`, '');
       state.selectedInterceptor = null;
     } else {
@@ -213,6 +225,10 @@ function handleRightClick(e) {
       interceptor.target = null;
       interceptor.idTarget = null;
       interceptor.capPoint = { x: nmPos.x, y: nmPos.y };
+      interceptor.refuelTanker = null;
+      interceptor.preDivertState = null;
+      interceptor.preDivertTarget = null;
+      interceptor.preDivertCapPoint = null;
       addLog(`${interceptor.id} — CAP ORBIT REASSIGNED`, '');
       state.selectedInterceptor = null;
     }

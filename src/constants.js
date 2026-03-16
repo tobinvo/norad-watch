@@ -142,11 +142,11 @@ export const AIRCRAFT_TYPES = {
     name: 'F-16C Falcon',
     callsign: 'VIPER',
     role: 'MULTIROLE',
-    desc: 'Fuel-efficient with good endurance. Fewer weapons but can stay on station longer.',
+    desc: 'Fuel-efficient with good endurance. Reliable workhorse that can stay on station longer.',
     speed: 780,
     fuelCapacity: 100,
     fuelBurnRate: 0.028,    // ~119s real endurance, 390nm round trip
-    weapons: 2,
+    weapons: 3,
     weaponType: 'AMRAAM',
     weaponsRange: 25,
     speedRating: 2,
@@ -189,6 +189,23 @@ export const AIRCRAFT_TYPES = {
     turnaroundTime: 1800,   // game-seconds (~60s real at 1x)
     maxSorties: 2,
   },
+  'KC-135': {
+    name: 'KC-135 Stratotanker',
+    callsign: 'TEXACO',
+    role: 'AERIAL REFUELING',
+    desc: 'No weapons. Extends fighter endurance when on station. Position carefully — losing it shortens your reach.',
+    speed: 450,
+    fuelCapacity: 100,
+    fuelBurnRate: 0.012,    // ~277s real endurance
+    weapons: 0,
+    weaponType: null,
+    weaponsRange: 0,
+    speedRating: 1,
+    rangeRating: 0,
+    enduranceRating: 3,
+    turnaroundTime: 1800,   // game-seconds (~60s real at 1x)
+    maxSorties: 2,
+  },
 };
 
 // ═══════════════════════════════════════════
@@ -198,14 +215,14 @@ export const AIRCRAFT_TYPES = {
 export const MISSILE_TYPES = {
   AMRAAM: {
     name: 'AIM-120 AMRAAM',
-    speed: 2700,          // knots (~Mach 4)
+    speed: 1200,          // visual speed (slower than real Mach 4 for playability — ~2.5s flight at 25nm)
     guidance: 'ACTIVE',   // tracks target each frame
     basePk: 0.70,
     callsign: 'FOX THREE',
   },
   GENIE: {
     name: 'AIR-2 Genie',
-    speed: 1800,          // knots (~Mach 3)
+    speed: 800,           // visual speed (slower than real Mach 3 for playability — ~1.2s flight at 8nm)
     guidance: 'UNGUIDED', // fixed bearing from launch
     basePk: 0.95,         // nuclear warhead
     callsign: 'FOX ONE — GENIE',
@@ -229,3 +246,11 @@ export const DAMAGE_DESTROY_CHANCE = {
 };
 
 export const MISSILE_ARRIVAL_DIST = 1.5; // nm — missile "arrives" at target
+
+// ═══════════════════════════════════════════
+// TANKER REFUELING
+// ═══════════════════════════════════════════
+
+export const TANKER_REFUEL_RANGE = 5;       // nm — fighters within this of an on-station tanker get fuel
+export const TANKER_REFUEL_RATE = 0.15;     // fuel units per game-second restored to receiving fighter
+export const TANKER_REFUEL_TARGET = 0.90;   // refuel to 90% of fuelMax

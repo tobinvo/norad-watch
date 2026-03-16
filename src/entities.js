@@ -1,5 +1,6 @@
 import { AIRCRAFT_TYPES, THREAT_TYPES, ARRIVAL_THRESHOLD, ID_RANGE, ID_TIME, CIVILIAN_TYPES,
-  MISSILE_TYPES, PK_TARGET_MODIFIERS, DAMAGE_DESTROY_CHANCE, MISSILE_ARRIVAL_DIST } from './constants.js';
+  MISSILE_TYPES, PK_TARGET_MODIFIERS, DAMAGE_DESTROY_CHANCE, MISSILE_ARRIVAL_DIST,
+  TANKER_REFUEL_RANGE, TANKER_REFUEL_RATE, TANKER_REFUEL_TARGET } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
 
@@ -31,7 +32,7 @@ export function createBase(name, x, y, roster) {
 // INTERCEPTOR
 // ═══════════════════════════════════════════
 
-// States: READY, AIRBORNE, CAP, RTB, ID_MISSION, CRASHED
+// States: READY, AIRBORNE, CAP, RTB, ID_MISSION, REFUELING, CRASHED
 export function createInterceptor(base, typeName) {
   const num = state.nextInterceptorNum++;
   const spec = AIRCRAFT_TYPES[typeName];
@@ -55,6 +56,11 @@ export function createInterceptor(base, typeName) {
     bingo: false,
     sorties: 0,          // completed sorties (max = spec.maxSorties)
     turnaroundUntil: 0,  // gameTime (ms) when turnaround completes
+    // Tanker diversion state
+    refuelTanker: null,       // reference to tanker being refueled from
+    preDivertState: null,     // state before diverting to tanker
+    preDivertTarget: null,    // engagement target before diverting
+    preDivertCapPoint: null,  // CAP point before diverting
   };
 }
 
@@ -226,7 +232,7 @@ export function moveInterceptor(interceptor, dSec) {
   }
 
   // Smart bingo — calculate fuel needed to RTB from current position
-  if (interceptor.state !== 'RTB' && interceptor.state !== 'READY') {
+  if (interceptor.state !== 'RTB' && interceptor.state !== 'READY' && interceptor.state !== 'REFUELING') {
     const dx = interceptor.base.x - interceptor.x;
     const dy = interceptor.base.y - interceptor.y;
     const distToBase = Math.sqrt(dx * dx + dy * dy);
@@ -237,6 +243,21 @@ export function moveInterceptor(interceptor, dSec) {
 
     if (interceptor.fuel <= fuelWithMargin) {
       interceptor.bingo = true;
+
+      // Try to divert to a tanker instead of RTB
+      const tanker = findReachableTanker(interceptor);
+      if (tanker) {
+        interceptor.preDivertState = interceptor.state;
+        interceptor.preDivertTarget = interceptor.target;
+        interceptor.preDivertCapPoint = interceptor.capPoint;
+        interceptor.state = 'REFUELING';
+        interceptor.refuelTanker = tanker;
+        interceptor.target = null;
+        interceptor.idTarget = null;
+        interceptor.capPoint = null;
+        return;
+      }
+
       interceptor.state = 'RTB';
       interceptor.target = null;
       interceptor.idTarget = null;
@@ -256,6 +277,9 @@ export function moveInterceptor(interceptor, dSec) {
   } else if (interceptor.state === 'CAP' && interceptor.capPoint) {
     targetX = interceptor.capPoint.x;
     targetY = interceptor.capPoint.y;
+  } else if (interceptor.state === 'REFUELING' && interceptor.refuelTanker) {
+    targetX = interceptor.refuelTanker.x;
+    targetY = interceptor.refuelTanker.y;
   } else if (interceptor.state === 'RTB') {
     targetX = interceptor.base.x;
     targetY = interceptor.base.y;
@@ -275,6 +299,59 @@ export function moveInterceptor(interceptor, dSec) {
     }
     // Stay near the contact (match position loosely)
     return;
+  }
+
+  // REFUELING — check tanker proximity and refuel
+  if (interceptor.state === 'REFUELING' && interceptor.refuelTanker) {
+    const tanker = interceptor.refuelTanker;
+
+    // Tanker gone — fall back to RTB
+    if (tanker.state === 'CRASHED' || tanker.state === 'RTB' || tanker.state === 'READY' ||
+        tanker.state === 'TURNAROUND' || tanker.state === 'MAINTENANCE') {
+      interceptor.refuelTanker = null;
+      interceptor.preDivertState = null;
+      interceptor.preDivertTarget = null;
+      interceptor.preDivertCapPoint = null;
+      interceptor.state = 'RTB';
+      addLog(`${interceptor.id} TANKER UNAVAILABLE — RTB`, 'warn');
+      return;
+    }
+
+    if (dist <= TANKER_REFUEL_RANGE) {
+      // Receiving fuel — don't move, just refuel
+      interceptor.fuel = Math.min(
+        interceptor.fuelMax * TANKER_REFUEL_TARGET,
+        interceptor.fuel + TANKER_REFUEL_RATE * dSec
+      );
+
+      // Done refueling?
+      if (interceptor.fuel >= interceptor.fuelMax * TANKER_REFUEL_TARGET) {
+        interceptor.bingo = false;
+        addLog(`${interceptor.id} REFUEL COMPLETE — RESUMING MISSION`, '');
+
+        const prevState = interceptor.preDivertState;
+        const prevTarget = interceptor.preDivertTarget;
+        const prevCap = interceptor.preDivertCapPoint;
+
+        interceptor.refuelTanker = null;
+        interceptor.preDivertState = null;
+        interceptor.preDivertTarget = null;
+        interceptor.preDivertCapPoint = null;
+
+        if (prevState === 'AIRBORNE' && prevTarget && prevTarget.state === 'ACTIVE') {
+          interceptor.state = 'AIRBORNE';
+          interceptor.target = prevTarget;
+        } else if (prevState === 'CAP' && prevCap) {
+          interceptor.state = 'CAP';
+          interceptor.capPoint = prevCap;
+        } else {
+          interceptor.state = 'CAP';
+          interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
+        }
+      }
+      return; // Don't move while refueling in range
+    }
+    // Not in range yet — fall through to normal movement
   }
 
   if (dist < ARRIVAL_THRESHOLD) {
@@ -503,4 +580,72 @@ export function getActiveAWACS() {
   return state.interceptors.filter(
     i => i.type === 'E-3A' && (i.state === 'AIRBORNE' || i.state === 'CAP')
   );
+}
+
+// ═══════════════════════════════════════════
+// TANKER REFUELING
+// ═══════════════════════════════════════════
+
+export function getActiveTankers() {
+  return state.interceptors.filter(
+    i => i.type === 'KC-135' && i.state === 'CAP'
+  );
+}
+
+// Is this tanker on station (arrived at its orbit point)?
+function isTankerOnStation(tanker) {
+  if (!tanker.capPoint) return false;
+  const dx = tanker.x - tanker.capPoint.x;
+  const dy = tanker.y - tanker.capPoint.y;
+  return Math.sqrt(dx * dx + dy * dy) <= ARRIVAL_THRESHOLD;
+}
+
+function findReachableTanker(interceptor) {
+  // Don't let tankers/AWACS seek tankers
+  if (interceptor.type === 'KC-135' || interceptor.type === 'E-3A') return null;
+
+  const tankers = getActiveTankers();
+  let best = null;
+  let bestDist = Infinity;
+
+  for (const tanker of tankers) {
+    if (!isTankerOnStation(tanker)) continue;
+
+    const dx = tanker.x - interceptor.x;
+    const dy = tanker.y - interceptor.y;
+    const distToTanker = Math.sqrt(dx * dx + dy * dy);
+    const nmPerSec = interceptor.speed / 3600;
+    const timeToTanker = distToTanker / nmPerSec;
+    const fuelToTanker = timeToTanker * interceptor.spec.fuelBurnRate;
+
+    if (interceptor.fuel > fuelToTanker * 1.1 && distToTanker < bestDist) {
+      best = tanker;
+      bestDist = distToTanker;
+    }
+  }
+  return best;
+}
+
+// Passive refueling — fighters in CAP near an on-station tanker get fuel topped up
+export function updateTankerRefueling(dSec) {
+  const tankers = getActiveTankers();
+  for (const tanker of tankers) {
+    if (!isTankerOnStation(tanker)) continue;
+
+    for (const fighter of state.interceptors) {
+      if (fighter === tanker || fighter.type === 'KC-135' || fighter.type === 'E-3A') continue;
+      if (fighter.state !== 'CAP') continue;
+      if (fighter.fuel >= fighter.fuelMax * TANKER_REFUEL_TARGET) continue;
+
+      const dx = fighter.x - tanker.x;
+      const dy = fighter.y - tanker.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist <= TANKER_REFUEL_RANGE) {
+        fighter.fuel = Math.min(
+          fighter.fuelMax * TANKER_REFUEL_TARGET,
+          fighter.fuel + TANKER_REFUEL_RATE * dSec
+        );
+      }
+    }
+  }
 }

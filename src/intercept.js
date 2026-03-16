@@ -24,8 +24,8 @@ export function resolveEngagements() {
 
     const contact = interceptor.target;
 
-    // No weapons — winchester
-    if (interceptor.weapons <= 0) {
+    // No weapons and no missile in flight — winchester
+    if (interceptor.weapons <= 0 && !hasMissileInFlight(interceptor)) {
       interceptor.target = null;
       interceptor.state = 'RTB';
       addLog(`${interceptor.id} WINCHESTER — NO WEAPONS — RTB`, 'warn');

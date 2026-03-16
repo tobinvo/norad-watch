@@ -2,6 +2,7 @@ import {
   GREEN_BRIGHT, GREEN_MID, GREEN_DIM, RED_ALERT, YELLOW_WARN, AMBER,
   SWEEP_PERIOD, SWEEP_TRAIL_ANGLE, BLIP_FADE_TIME,
   AWACS_DETECTION_RANGE, THREAT_TYPES, SWEEPS_TO_CLASSIFY,
+  TANKER_REFUEL_RANGE,
 } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
@@ -471,14 +472,31 @@ export function drawInterceptors(ctx, sweepTime) {
     const fuelPct = interceptor.fuel / interceptor.fuelMax;
     const isBingo = fuelPct <= 0.25;
     const isAWACS = interceptor.type === 'E-3A';
+    const isTanker = interceptor.type === 'KC-135';
     const isSelected = state.selectedInterceptor === interceptor;
     const isIdMission = interceptor.state === 'ID_MISSION';
-    const color = isBingo ? YELLOW_WARN : GREEN_BRIGHT;
-    const size = isAWACS ? 6 : 4;
+    const isRefueling = interceptor.state === 'REFUELING';
+    const color = isBingo ? YELLOW_WARN : isTanker ? '#c896ff' : GREEN_BRIGHT;
+    const size = (isAWACS || isTanker) ? 6 : 4;
 
     ctx.save();
 
-    if (isAWACS) {
+    if (isTanker) {
+      // Tanker symbol: circle with + inside
+      ctx.beginPath();
+      ctx.arc(ix, iy, size, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 4;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ix - size * 0.5, iy);
+      ctx.lineTo(ix + size * 0.5, iy);
+      ctx.moveTo(ix, iy - size * 0.5);
+      ctx.lineTo(ix, iy + size * 0.5);
+      ctx.stroke();
+    } else if (isAWACS) {
       ctx.beginPath();
       ctx.arc(ix, iy, size, 0, Math.PI * 2);
       ctx.strokeStyle = color;
@@ -522,6 +540,21 @@ export function drawInterceptors(ctx, sweepTime) {
       ctx.setLineDash([4, 4]);
       ctx.stroke();
       ctx.setLineDash([]);
+
+      // Tanker refuel range ring
+      if (isTanker) {
+        const refuelR = TANKER_REFUEL_RANGE * nmToPixels();
+        ctx.beginPath();
+        ctx.arc(ix, iy, refuelR, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(200, 150, 255, 0.4)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.font = '7px "Courier New", monospace';
+        ctx.fillStyle = 'rgba(200, 150, 255, 0.5)';
+        ctx.fillText(`REFUEL ${TANKER_REFUEL_RANGE}NM`, ix + refuelR + 3, iy - 3);
+      }
     }
 
     // ID mission indicator — pulsing ring
@@ -539,7 +572,7 @@ export function drawInterceptors(ctx, sweepTime) {
     ctx.font = '8px "Courier New", monospace';
     ctx.fillStyle = color;
     ctx.shadowBlur = 0;
-    const stateLabel = isIdMission ? ' ID' : '';
+    const stateLabel = isIdMission ? ' ID' : isRefueling ? ' REFUEL' : '';
     ctx.fillText(`${interceptor.id}${stateLabel}`, ix + size + 3, iy + 3);
 
     // CAP orbit marker
@@ -589,6 +622,19 @@ export function drawInterceptors(ctx, sweepTime) {
       ctx.beginPath();
       ctx.moveTo(ix, iy);
       ctx.lineTo(bx, by);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Refueling line to tanker
+    if (isRefueling && interceptor.refuelTanker) {
+      const [tx, ty] = toCanvas(interceptor.refuelTanker.x, interceptor.refuelTanker.y);
+      ctx.strokeStyle = 'rgba(200, 150, 255, 0.3)';
+      ctx.lineWidth = 0.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(ix, iy);
+      ctx.lineTo(tx, ty);
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -847,6 +893,7 @@ export function drawBases(ctx) {
         'F-16C': 'rgba(100, 255, 100, 0.18)',
         'F-106A': 'rgba(100, 100, 255, 0.18)',
         'E-3A': 'rgba(255, 200, 100, 0.18)',
+        'KC-135': 'rgba(200, 150, 255, 0.18)',
       };
       for (const aircraft of base.interceptors) {
         if (aircraft.state !== 'READY') continue;

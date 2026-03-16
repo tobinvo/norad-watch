@@ -1,7 +1,7 @@
 import { GAME_SPEED, AUTO_PAUSE_COOLDOWN, TIME_STEPS } from './constants.js';
 import { state } from './state.js';
 import { SECTOR, toCanvas, updateCanvasSize } from './sector.js';
-import { createBase, createCity, moveContact, moveInterceptor, moveMissile } from './entities.js';
+import { createBase, createCity, moveContact, moveInterceptor, moveMissile, updateTankerRefueling } from './entities.js';
 import { drawMap } from './map.js';
 import { drawRangeRings, drawRadarSites, drawSweep, drawContacts, drawInterceptors, drawMissiles, drawBases, drawCities, drawEffects, drawAwacsRange, initRadarSweeps } from './radar.js';
 import { trySpawnThreat } from './spawner.js';
@@ -151,7 +151,7 @@ function update(gameDt, timestamp) {
 
     moveInterceptor(interceptor, dSec);
 
-    if (!wasBingo && interceptor.bingo) {
+    if (!wasBingo && interceptor.bingo && interceptor.state === 'RTB') {
       addLog(`${interceptor.id} BINGO FUEL — RTB AUTHORIZED`, 'warn');
       autoPause('BINGO FUEL', timestamp);
     }
@@ -159,6 +159,34 @@ function update(gameDt, timestamp) {
     if (wasAlive && interceptor.state === 'CRASHED') {
       addLog(`${interceptor.id} FUEL EXHAUSTION — AIRCRAFT LOST`, 'alert');
       autoPause('AIRCRAFT LOST', timestamp);
+      if (interceptor.type === 'KC-135') {
+        addLog(`TANKER ${interceptor.id} LOST — REFUELING CAPABILITY REDUCED`, 'alert');
+      }
+    }
+
+    // Bingo + diverting to tanker
+    if (!wasBingo && interceptor.bingo && interceptor.state === 'REFUELING') {
+      addLog(`${interceptor.id} BINGO FUEL — DIVERTING TO TANKER ${interceptor.refuelTanker?.id}`, 'warn');
+      autoPause('BINGO FUEL', timestamp);
+    }
+  }
+
+  // Tanker passive refueling (fighters in CAP near on-station tankers)
+  updateTankerRefueling(dSec);
+
+  // Orphaned REFUELING fighters (tanker lost while they were en route)
+  for (const interceptor of state.interceptors) {
+    if (interceptor.state !== 'REFUELING' || !interceptor.refuelTanker) continue;
+    const t = interceptor.refuelTanker;
+    if (t.state === 'CRASHED' || t.state === 'RTB' || t.state === 'READY' ||
+        t.state === 'TURNAROUND' || t.state === 'MAINTENANCE') {
+      interceptor.refuelTanker = null;
+      interceptor.preDivertState = null;
+      interceptor.preDivertTarget = null;
+      interceptor.preDivertCapPoint = null;
+      interceptor.state = 'RTB';
+      interceptor.bingo = true;
+      addLog(`${interceptor.id} TANKER LOST — RTB`, 'warn');
     }
   }
 

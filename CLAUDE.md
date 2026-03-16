@@ -3,7 +3,7 @@
 A browser-based cold-war NORAD air defense simulation. The player manages radar contacts, scrambles interceptors, and defends North American cities against escalating waves of airborne threats. Prioritizes the "control tower" feel — managing information and making decisions, not clicking frantically.
 
 ## Project Status
-**Phase: 9B complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post. Phase 6 added IFF pipeline + civilian traffic. Phase 7 added WCS (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements. Phase 8 added time compression (1-16x), auto-pause on critical events, game clock. Phase 9A added turnaround time, sortie limits, fuel range envelopes. Phase 9B added missiles as map entities, Pk, damage model.
+**Phase: 9B complete + KC-135 tanker support (from 9C)** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post. Phase 6 added IFF pipeline + civilian traffic. Phase 7 added WCS (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements. Phase 8 added time compression (1-16x), auto-pause on critical events, game clock. Phase 9A added turnaround time, sortie limits, fuel range envelopes. Phase 9B added missiles as map entities, Pk, damage model.
 
 ## Tech Stack
 - **Vanilla JavaScript** + **HTML5 Canvas** — no frameworks, no build step
@@ -29,16 +29,18 @@ norad-watch/
 ├── style.css             # Layout, CRT effects, panel styling
 ├── src/
 │   ├── main.js           # Game init, loop, resize handling
-│   ├── constants.js      # Colors, speeds, ranges, timings
+│   ├── constants.js      # Colors, speeds, ranges, aircraft/threat/missile specs
 │   ├── state.js          # Game state object
-│   ├── map.js            # North America coordinate data + drawing
-│   ├── radar.js          # Sweep rendering, blip reveal/fade logic
-│   ├── entities.js       # Base, Interceptor, Threat, City classes
+│   ├── sector.js         # NE ADIZ sector definition, coordinate conversion
+│   ├── map.js            # Coastline data + grid/boundary drawing
+│   ├── radar.js          # Sweep rendering, blip reveal/fade, missiles, effects
+│   ├── entities.js       # Base, Interceptor, Threat, Missile, City + movement
 │   ├── spawner.js        # Wave system, threat generation
-│   ├── intercept.js      # Geometric intercept calculation, engagement
-│   ├── fuel.js           # Fuel burn rates, bingo calculations
+│   ├── civilians.js      # Civilian traffic corridors + spawning
+│   ├── intercept.js      # Missile launch, engagement resolution, win/lose
 │   ├── input.js          # Click detection, selection, command dispatch
 │   ├── hud.js            # DOM panel updates (contacts, assets, log)
+│   ├── units.js          # Unit conversions (knots↔mph)
 │   └── scoring.js        # Score tracking, DEFCON system
 └── data/
     └── scenarios.js      # Scenario definitions (waves, timing, mix)
@@ -52,7 +54,7 @@ norad-watch/
 - HTML scaffold, canvas, CSS Grid panels, CRT aesthetic
 - Game loop with delta-time, radar sweep with blip fade
 - Entity system: Base, Interceptor, Threat, City
-- 4 aircraft types: F-15A, F-16C, F-106A, E-3A AWACS
+- 4 aircraft types: F-15A (4x AMRAAM), F-16C (3x AMRAAM), F-106A (1x Genie), E-3A AWACS
 - Fuel system with bingo warning, crash on empty, CAP orbits, RTB
 - Full UI panels: contact list, asset status, selection detail, event log
 - Left-click select / right-click action input scheme
@@ -124,12 +126,12 @@ norad-watch/
 - **Phase 9B:** Post-kill behavior — interceptors with remaining weapons enter CAP (retaskable) instead of auto-RTB. Re-engagement is automatic if missile misses and weapons remain.
 - **Phase 9B:** Missile efficiency scoring — bonus for high hit rate, penalty per wasted missile.
 
-### Phase 9C: Mission Systems — Define patrol zones, assign aircraft to CAP missions. AI flies the pattern. Player intervenes on key decisions only (engage? redirect?). Prevents RTS micro.
-5. **Tanker support** — KC-135 tanker orbits extend fighter endurance. Losing the tanker shortens your reach.
-6. **Missiles as map entities** — Firing a weapon spawns a visible missile entity that flies to the target with real flight time and speed. No more instant kills at weapons range. Player sees the missile track on radar, watches it close. Missile types (AIM-120 AMRAAM, AIM-7 Sparrow, AIR-2 Genie) have different speeds, ranges, and guidance.
-7. **Probability of kill (Pk)** — Missiles aren't guaranteed hits. Pk affected by target type, aspect angle, ECM, and range at launch. A miss means deciding whether to re-engage (spend another missile) or let it go.
-8. **Damage model** — Not everything is a one-hit kill. A missile hit may destroy, cripple (reduced speed, lost weapons), or miss. Damaged bombers limp on at reduced speed toward target. Damaged interceptors may lose radar or weapons but still fly. Creates harder decisions: re-engage the wounded bomber or trust it won't make it?
-9. **Waypoints / flight plans** — Plot multi-leg routes instead of just "go to target." Set approach corridors, define patrol boxes with specific legs, create holding patterns. Enables tactical positioning — approach from the south, set up a barrier CAP across a threat axis.
+### Phase 9C: Mission Systems (tanker done)
+**Goal:** Delegation, logistics, tactical control
+
+1. **Mission-based delegation** — Define patrol zones, assign aircraft to CAP missions. AI flies the pattern. Player intervenes on key decisions only (engage? redirect?). Prevents RTS micro.
+2. **Tanker support** ✓ — KC-135 Stratotanker (2 total: Otis + Langley). Scrambled like any aircraft, positioned at CAP orbit. Fighters within 5nm of on-station tanker get passive refueling. Auto-seek: bingo fighters divert to tanker instead of RTB (REFUELING state), refuel to 90%, then resume prior mission. Purple visual identity (circle with +), refuel range ring when selected.
+3. **Waypoints / flight plans** — Plot multi-leg routes instead of just "go to target." Set approach corridors, define patrol boxes with specific legs, create holding patterns. Enables tactical positioning.
 
 ### Phase 10: Sensor Depth
 **Goal:** Active/passive tradeoffs, radar physics
@@ -172,7 +174,9 @@ norad-watch/
 | 6     | Unknown contacts, civilian traffic, IFF pipeline | "Is that hostile?" |
 | 7     | Weapons Control States, ROE consequences | "Do I shoot?" |
 | 8     | Time compression, auto-pause, scenario clock | "Watch station rhythm" |
-| 9     | Turnaround, sortie limits, missiles-as-entities, Pk, damage model, waypoints | "I'm running out of planes" |
+| 9A    | Turnaround, sortie limits, fuel range envelopes | "I'm running out of planes" |
+| 9B    | Missiles-as-entities, Pk, damage model | "Will it hit?" |
+| 9C    | CAP delegation, tankers, waypoints | "Set it and forget it" |
 | 10    | Active/passive sensors, radar horizon, altitude, aircraft radars, data links | "I can't see everything" |
 | 11    | ECM, decoys, SEAD, formation tactics | "They're fighting back smart" |
 | 12    | Sound, weather, scenarios, difficulty, debrief | Complete experience |
@@ -194,11 +198,13 @@ norad-watch/
 - Weapons Control States (FREE/TIGHT/HOLD) govern engagement authorization
 - Wrong ID = catastrophic penalty
 
-### Intercept Geometry
-- Compute intercept point given threat heading/speed and interceptor speed
-- Interceptor flies to calculated intercept point
-- Engagement when interceptor reaches weapons range of target
-- Weapons range varies by aircraft type and loadout
+### Missiles & Engagement
+- Interceptor reaches weapons range → fires missile (visible on radar)
+- AMRAAM: active tracking (re-homes each frame), Mach 4, 25nm range, 70% base Pk
+- GENIE: unguided (fixed bearing), Mach 3, 8nm range, 95% base Pk (nuclear)
+- Pk modified by target type, range, damage state
+- Hit outcomes: destroy or cripple (speed halved, second hit = guaranteed kill)
+- Post-kill: interceptors CAP with remaining weapons (retaskable), not auto-RTB
 
 ### Fuel & Sortie Management
 - Burn rate proportional to speed
@@ -210,20 +216,21 @@ norad-watch/
 
 ### Scoring
 - Threats neutralized: +points per type
-- Assets preserved: multiplier based on % surviving
-- Fuel efficiency: less total fuel burned = bonus
-- Friendly fire: heavy penalty for engaging civilian tracks
-- DEFCON: reaching DEFCON 1 = situation penalty
+- Cities preserved: % bonus
+- Aircraft lost: penalty per crash
+- Friendly fire: heavy penalty for engaging civilian tracks (-500)
+- DEFCON: reaching DEFCON 1/2 = situation penalty
+- Missile efficiency: bonus for high hit rate, penalty per wasted missile
 
 ### Aircraft States
 - READY — on ground at base, available for scramble
 - TURNAROUND — on ground, refueling/rearming (countdown timer, unavailable)
 - MAINTENANCE — sortie limit reached, permanently out of game
-- AIRBORNE — in flight, heading to target or CAP point
-- ENGAGED — in weapons range, engaging threat
+- AIRBORNE — in flight, heading to target (fires missile at weapons range)
 - RTB — returning to base
-- CAP — orbiting patrol point
+- CAP — orbiting patrol point (also used post-kill with weapons remaining)
 - ID_MISSION — closing on unknown contact for visual identification
+- CRASHED — fuel exhaustion, lost permanently
 
 ### Threat States
 - UNKNOWN — unidentified, may be hostile or friendly
