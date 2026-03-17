@@ -773,14 +773,15 @@ export function renderStatusBar() {
 
   const waveEl = document.getElementById('waveIndicator');
   if (waveEl) {
-    // Show shift time remaining
+    // Show shift time remaining + difficulty
     const remainMs = Math.max(0, SHIFT_DURATION - state.gameTime);
     const remainMin = Math.floor(remainMs / 60000);
     const remainSec = Math.floor((remainMs % 60000) / 1000);
+    const diffLabel = state.difficulty !== 'STANDARD' ? ` [${state.difficulty}]` : '';
     if (state.shiftComplete) {
-      waveEl.textContent = 'SHIFT COMPLETE';
+      waveEl.textContent = `SHIFT COMPLETE${diffLabel}`;
     } else {
-      waveEl.textContent = `SHIFT -${String(remainMin).padStart(2, '0')}:${String(remainSec).padStart(2, '0')}`;
+      waveEl.textContent = `SHIFT -${String(remainMin).padStart(2, '0')}:${String(remainSec).padStart(2, '0')}${diffLabel}`;
     }
   }
 }
@@ -805,8 +806,8 @@ export function showScoringOverlay(scoreData) {
 
   html += `<div class="scoring-line"></div>`;
   html += `<div class="scoring-total">TOTAL SCORE: ${scoreData.score}</div>`;
-  html += `<div class="scoring-defcon">FINAL DEFCON: ${state.defcon}</div>`;
-  html += `<div class="scoring-hint">PRESS R TO RESTART</div>`;
+  html += `<div class="scoring-defcon">FINAL DEFCON: ${state.defcon}${scoreData.difficulty ? ` — ${scoreData.difficulty}` : ''}</div>`;
+  html += `<div class="scoring-hint">PRESS R TO RETURN TO MENU</div>`;
 
   overlay.innerHTML = html;
   overlay.style.display = 'block';

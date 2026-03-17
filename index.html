@@ -13,6 +13,30 @@
 <div class="crt-vignette"></div>
 <div class="crt-overlay"></div>
 
+<!-- Pre-game menu -->
+<div class="menu-overlay" id="menuOverlay">
+  <div class="menu-box">
+    <div class="menu-title">NORAD WATCH</div>
+    <div class="menu-subtitle">ALASKA ADIZ — WESTERN SECTOR</div>
+    <div class="menu-section">SELECT DIFFICULTY</div>
+    <div class="menu-options" id="menuOptions">
+      <div class="menu-option" data-difficulty="CADET">
+        <div class="menu-option-label">CADET</div>
+        <div class="menu-option-desc">Training mode. All contacts auto-identified. No civilian traffic. Fewer incidents.</div>
+      </div>
+      <div class="menu-option selected" data-difficulty="STANDARD">
+        <div class="menu-option-label">STANDARD</div>
+        <div class="menu-option-desc">Full watch station. IFF required. Civilian traffic active. Standard pacing.</div>
+      </div>
+      <div class="menu-option" data-difficulty="VETERAN">
+        <div class="menu-option-label">VETERAN</div>
+        <div class="menu-option-desc">Heightened alert. More attacks, tighter windows. Enhanced SEAD. Full IFF.</div>
+      </div>
+    </div>
+    <button class="menu-start" id="menuStart">BEGIN SHIFT</button>
+  </div>
+</div>
+
 <div class="layout">
   <!-- Top Bar -->
   <div class="top-bar">

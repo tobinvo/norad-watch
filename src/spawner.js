@@ -1,9 +1,17 @@
-import { ARM_SPAWN_CHANCE, ESCORT_OFFSET_DISTANCE } from './constants.js';
+import { ESCORT_OFFSET_DISTANCE } from './constants.js';
 import { state } from './state.js';
 import { createThreat, getActiveAWACS } from './entities.js';
 import { addLog } from './hud.js';
-import { INCIDENTS, SHIFT_DURATION } from '../data/scenarios.js';
+import { INCIDENTS, INCIDENTS_EASY, INCIDENTS_HARD, SHIFT_DURATION } from '../data/scenarios.js';
 import { getSpawnPosition, pickSpawnEdge } from './sector.js';
+import { getDifficulty } from './difficulty.js';
+
+function getIncidents() {
+  const filter = getDifficulty().incidentFilter;
+  if (filter === 'EASY') return INCIDENTS_EASY;
+  if (filter === 'HARD') return INCIDENTS_HARD;
+  return INCIDENTS;
+}
 
 export function trySpawnThreat(gameTime) {
   if (state.status !== 'ACTIVE') return;
@@ -18,9 +26,10 @@ export function trySpawnThreat(gameTime) {
   }
 
   // Check each incident — spawn if time has passed and not yet spawned
-  for (let i = 0; i < INCIDENTS.length; i++) {
+  const incidents = getIncidents();
+  for (let i = 0; i < incidents.length; i++) {
     if (state.incidentsSpawned[i]) continue;
-    const incident = INCIDENTS[i];
+    const incident = incidents[i];
     if (gameTime < incident.time) continue;
 
     // Spawn this incident
@@ -122,7 +131,7 @@ function spawnIncident(incident, gameTime) {
       assignWaypoints(threat, spawn);
 
       // Fighters in attack incidents may hunt AWACS
-      if (typeName === 'FIGHTER' && threat.intent === 'ATTACK' && Math.random() < 0.4) {
+      if (typeName === 'FIGHTER' && threat.intent === 'ATTACK' && Math.random() < getDifficulty().awacsHuntChance) {
         const awacs = getActiveAWACS();
         if (awacs.length > 0) {
           threat.targetAWACS = true;
@@ -137,7 +146,7 @@ function spawnIncident(incident, gameTime) {
 
 function trySpawnARM(targetCity) {
   const activeSites = state.radarSites.filter(s => !s.destroyed);
-  if (activeSites.length > 0 && Math.random() < ARM_SPAWN_CHANCE) {
+  if (activeSites.length > 0 && Math.random() < getDifficulty().armSpawnChance) {
     const armSpawn = getSpawnPosition(pickSpawnEdge());
     const targetSite = activeSites[Math.floor(Math.random() * activeSites.length)];
     const arm = createThreat(armSpawn.x, armSpawn.y, targetCity, 'ARM');

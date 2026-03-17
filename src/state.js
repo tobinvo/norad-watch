@@ -83,4 +83,7 @@ export const state = {
 
   // Formations
   nextFormationNum: 1,
+
+  // Difficulty
+  difficulty: 'STANDARD',
 };

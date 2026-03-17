@@ -2,6 +2,7 @@ import { CIVILIAN_SPAWN_INTERVAL, CIVILIAN_START_COUNT } from './constants.js';
 import { state } from './state.js';
 import { createCivilian } from './entities.js';
 import { SECTOR } from './sector.js';
+import { getDifficulty } from './difficulty.js';
 
 // ═══════════════════════════════════════════
 // CIVILIAN TRAFFIC SPAWNER
@@ -44,6 +45,10 @@ function spawnOneCivilian() {
 
 // Place civilians already in-transit at game start
 export function initCivilianTraffic() {
+  if (!getDifficulty().civilians) {
+    state.lastCivilianSpawn = state.gameTime;
+    return;
+  }
   for (let i = 0; i < CIVILIAN_START_COUNT; i++) {
     const corridor = CORRIDORS[Math.floor(Math.random() * CORRIDORS.length)];
     const entry = corridor.entry();
@@ -62,6 +67,7 @@ export function initCivilianTraffic() {
 
 export function trySpawnCivilian(gameTime) {
   if (state.status !== 'ACTIVE') return;
+  if (!getDifficulty().civilians) return;
 
   if (gameTime - state.lastCivilianSpawn < CIVILIAN_SPAWN_INTERVAL) return;
 

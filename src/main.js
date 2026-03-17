@@ -11,10 +11,12 @@ import { renderLog, renderContacts, renderAssets, renderStatusBar, renderSelecti
 import { initInput } from './input.js';
 import { updateDefcon, calculateFinalScore } from './scoring.js';
 import { initAudio, resumeAudio, startAmbient, updateAmbient, stopAmbient, playMiss, playRadioChatter } from './audio.js';
+import { getDifficulty } from './difficulty.js';
 
 let canvas, ctx;
 let scoreShown = false;
 let sweepTime = 0;
+let gameStarted = false;
 
 function setupCanvas() {
   canvas = document.getElementById('radarCanvas');
@@ -54,9 +56,15 @@ function initGame() {
 
   initRadarSweeps();
 
+  const diff = getDifficulty();
   addLog('NORAD WATCH STATION ONLINE — ALASKA ADIZ WESTERN SECTOR', '');
   addLog(`${state.radarSites.length} RADAR SITES ACTIVE — BERING SEA COVERAGE NORMAL`, '');
-  addLog('CIVILIAN AIR TRAFFIC IN SECTOR — IFF ACTIVE', '');
+  if (diff.civilians) {
+    addLog('CIVILIAN AIR TRAFFIC IN SECTOR — IFF ACTIVE', '');
+  } else {
+    addLog('CIVILIAN AIR TRAFFIC SUSPENDED — TRAINING MODE', '');
+  }
+  addLog(`DIFFICULTY: ${diff.label}`, '');
   addLog('LEFT-CLICK SELECT | RIGHT-CLICK ACTION | SPACE PAUSE', '');
   addLog('H = MARK HOSTILE | F = MARK FRIENDLY | G = RADAR HOT/COLD', '');
   addLog('M = DEFINE PATROL | SHIFT+R-CLICK = WAYPOINT | E = EMCON', '');
@@ -253,7 +261,7 @@ function render(timestamp) {
   const realDt = state.lastTimestamp ? timestamp - state.lastTimestamp : 0;
   state.lastTimestamp = timestamp;
 
-  if (!state.paused) {
+  if (!state.paused && gameStarted) {
     sweepTime += realDt * state.timeMultiplier;
     const gameDt = realDt * GAME_SPEED * state.timeMultiplier;
     state.gameTime += gameDt;
@@ -298,6 +306,56 @@ function render(timestamp) {
 }
 
 // ═══════════════════════════════════════════
+// MENU
+// ═══════════════════════════════════════════
+
+let hasPlayedBefore = false;
+
+function showMenu() {
+  const menu = document.getElementById('menuOverlay');
+  menu.classList.remove('hidden');
+  gameStarted = false;
+}
+
+function hideMenu() {
+  const menu = document.getElementById('menuOverlay');
+  menu.classList.add('hidden');
+}
+
+function initMenu() {
+  const options = document.querySelectorAll('.menu-option');
+  const startBtn = document.getElementById('menuStart');
+
+  // Difficulty selection
+  options.forEach(opt => {
+    opt.addEventListener('click', () => {
+      options.forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+    });
+  });
+
+  // Begin shift
+  startBtn.addEventListener('click', () => {
+    const selected = document.querySelector('.menu-option.selected');
+    const difficulty = selected?.dataset.difficulty || 'STANDARD';
+    state.difficulty = difficulty;
+
+    hideMenu();
+
+    if (hasPlayedBefore) {
+      // Restart from menu after game over
+      resetGame();
+    } else {
+      // First start
+      initGame();
+      startAmbient();
+      hasPlayedBefore = true;
+    }
+    gameStarted = true;
+  });
+}
+
+// ═══════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════
 
@@ -305,14 +363,13 @@ window.addEventListener('load', () => {
   setupCanvas();
   initInput(canvas);
   initHud();
-  initGame();
+  initMenu();
   requestAnimationFrame(render);
 
   // Audio init on first user gesture (browser autoplay policy)
   const startAudioOnGesture = () => {
     initAudio();
     resumeAudio();
-    startAmbient();
     window.removeEventListener('click', startAudioOnGesture);
     window.removeEventListener('keydown', startAudioOnGesture);
   };
@@ -323,12 +380,14 @@ window.addEventListener('load', () => {
 window.addEventListener('resize', resizeCanvas);
 
 window.addEventListener('keydown', (e) => {
+  if (!gameStarted) return; // ignore game keys while menu is showing
+
   if (e.code === 'Space') {
     e.preventDefault();
     state.paused = !state.paused;
   }
   if (e.code === 'KeyR' && (state.status === 'WON' || state.status === 'LOST')) {
-    resetGame();
+    showMenu();
   }
   // Time compression: [ slower, ] faster
   if (e.code === 'BracketLeft') {

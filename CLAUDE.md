@@ -3,7 +3,7 @@
 A browser-based cold-war NORAD air defense simulation. The player manages radar contacts, scrambles interceptors, and defends North American cities against escalating waves of airborne threats. Prioritizes the "control tower" feel — managing information and making decisions, not clicking frantically.
 
 ## Project Status
-**Phase: 13 complete** — Phases 1-4 built arcade prototype. Phase 5 single-sector command post. Phase 6 IFF + civilians. Phase 7 WCS/ROE. Phase 8 time compression. Phase 9A-C resource pressure + missiles + missions. Phase 10 sensor depth. Phase 11A-C zoom/EW/formations. Phase 12A sound design. Phase 13 tactical overhaul: Alaska ADIZ sector (300nm), SCRAMBLING/TRACKING states, probe vs attack AI, shift-based spawning, ingress waypoints, radar hot/cold. Next: Phase 14+ (difficulty scaling, scenario variety, weather, debrief).
+**Phase: 14A complete** — Phases 1-4 built arcade prototype. Phase 5 single-sector command post. Phase 6 IFF + civilians. Phase 7 WCS/ROE. Phase 8 time compression. Phase 9A-C resource pressure + missiles + missions. Phase 10 sensor depth. Phase 11A-C zoom/EW/formations. Phase 12A sound design. Phase 13 tactical overhaul: Alaska ADIZ sector (300nm), SCRAMBLING/TRACKING states, probe vs attack AI, shift-based spawning, ingress waypoints, radar hot/cold. Phase 14A difficulty scaling: pre-game menu, CADET/STANDARD/VETERAN presets, difficulty-selected incident schedules, auto-ID for CADET, score multipliers. Next: Phase 14B+ (scenario variety, debrief, weather).
 
 ## Tech Stack
 - **Vanilla JavaScript** + **HTML5 Canvas** — no frameworks, no build step
@@ -41,7 +41,8 @@ norad-watch/
 │   ├── input.js          # Click detection, selection, command dispatch
 │   ├── hud.js            # DOM panel updates (contacts, assets, log)
 │   ├── units.js          # Unit conversions (knots↔mph)
-│   └── scoring.js        # Score tracking, DEFCON system
+│   ├── scoring.js        # Score tracking, DEFCON system
+│   └── difficulty.js     # Difficulty presets (CADET/STANDARD/VETERAN)
 └── data/
     └── scenarios.js      # Scenario definitions (waves, timing, mix)
 ```
@@ -199,11 +200,20 @@ norad-watch/
 - **Phase 13:** Shift-based spawning ✓ — Replaced 5-wave system with 45-minute game-time shift. 17 incidents at irregular intervals: solo probes, pair probes, formation probes, solo attacks, formation attacks, ARM strikes. Pacing: 3 min setup → routine probes → first real attack at ~15 min → tempo increase → final push with cruise missiles and ICBM. Shift countdown timer in status bar.
 - **Phase 13:** Sound hooks ✓ — Probe turn-back (descending tone), scramble siren (rising tone). Detection ping only (removed per-contact wave alarm).
 
-### Phase 14+: Future (Deferred)
-- **Difficulty scaling** — Cadet (auto-ID, no civilians) → Veteran (full IFF, civilians, SEAD)
+### Phase 14A: Difficulty Scaling ✓
+**Goal:** On-ramp for new players, challenge mode for veterans
+
+- **Phase 14A:** Pre-game menu screen ✓ — CRT-styled overlay with difficulty selection, shown on load and after game over (R key returns to menu instead of instant restart).
+- **Phase 14A:** 3 difficulty levels ✓ — CADET (training: auto-ID all contacts, no civilians, 10 easy incidents, no ARM/SEAD, no AWACS hunting, 0.5x score), STANDARD (current baseline: full IFF, civilians, 16 incidents), VETERAN (hard: 20 incidents, compressed timing, 0.55 ARM chance, 0.6 AWACS hunt rate, 1.5x score).
+- **Phase 14A:** Difficulty-selected incident schedules ✓ — `INCIDENTS_EASY`, `INCIDENTS` (standard), `INCIDENTS_HARD` in `data/scenarios.js`. Spawner selects list based on `getDifficulty().incidentFilter`.
+- **Phase 14A:** CADET auto-ID ✓ — All non-civilian contacts auto-identified as HOSTILE on first detection (skips IFF pipeline). No civilian traffic spawned.
+- **Phase 14A:** Score multiplier ✓ — Final score scaled by difficulty (CADET 0.5x, VETERAN 1.5x). Difficulty shown in scoring overlay and status bar.
+- **Phase 14A:** `src/difficulty.js` ✓ — Difficulty presets + `getDifficulty()` accessor keyed off `state.difficulty`.
+
+### Phase 14B+: Future (Deferred)
 - **Scenario variety** — Additional sectors (NE ADIZ, Iceland-Faroes Gap, Korea), different geography/threats/assets
-- **Weather sectors** — Overlay zones degrading radar detection
 - **Post-scenario debrief** — Timeline replay showing all contacts, decisions, outcomes
+- **Weather sectors** — Overlay zones degrading radar detection
 - **Pre-mission asset placement** — Budget to position radar sites, SAM batteries, bases
 - **Terrain masking** — blocked until altitude is a real mechanic
 - **Altitude as full mechanic** — radar horizon, engagement envelopes, climb/descent time
@@ -225,7 +235,8 @@ norad-watch/
 | 11C   | Formation tactics, coordinated strikes | "They're organized" (done) |
 | 12A   | Sound design | "I can hear the tension" (done) |
 | 13    | Alaska sector, scramble delay, tracking, probe/attack AI, shift-based pacing | "Is this one real?" (done) |
-| 14+   | Difficulty, new sectors, weather, debrief, asset placement | Full experience |
+| 14A   | Difficulty levels, pre-game menu | "How hard do you want it?" (done) |
+| 14B+  | New sectors, weather, debrief, asset placement | Full experience |
 
 ## Core Mechanics
 

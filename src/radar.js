@@ -12,6 +12,7 @@ import { getActiveAWACS, getClassCategory, hasDataLink, isInRadarCone } from './
 import { toCanvas, nmToPixels, SECTOR } from './sector.js';
 import { ktsToMph } from './units.js';
 import { playSweepTick, playDetectionPing } from './audio.js';
+import { getDifficulty } from './difficulty.js';
 
 // ═══════════════════════════════════════════
 // RANGE RINGS
@@ -437,6 +438,15 @@ export function drawContacts(ctx, sweepTime) {
         contact.classification = 'CLASSIFIED';
         contact.classCategory = 'IFF SQUAWK';
         addLog(`${contact.id} SQUAWKING IFF — FRIENDLY`, '');
+      }
+
+      // CADET auto-ID — immediately identify all threats
+      if (getDifficulty().autoId && !contact.isCivilian && contact.allegiance === 'UNKNOWN') {
+        contact.allegiance = 'HOSTILE';
+        contact.classification = 'IDENTIFIED';
+        const spec = THREAT_TYPES[contact.type];
+        contact.classCategory = spec ? spec.label : contact.type;
+        addLog(`${contact.id} AUTO-ID — ${contact.classCategory} — HOSTILE`, 'alert');
       }
     }
 

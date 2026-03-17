@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { THREAT_TYPES, CIVILIAN_KILL_PENALTY } from './constants.js';
 import { addLog } from './hud.js';
+import { getDifficulty } from './difficulty.js';
 
 // ═══════════════════════════════════════════
 // DEFCON SYSTEM
@@ -101,6 +102,13 @@ export function calculateFinalScore() {
     breakdown.push({ label: `WASTED MISSILES (${state.missilesMissed})`, value: wastePenalty });
   }
 
+  // Difficulty multiplier
+  const diff = getDifficulty();
+  if (diff.scoreMultiplier !== 1.0) {
+    score = Math.round(score * diff.scoreMultiplier);
+    breakdown.push({ label: `${diff.label} MULTIPLIER (x${diff.scoreMultiplier})`, value: 0 });
+  }
+
   state.score = Math.max(0, score);
-  return { score: state.score, breakdown };
+  return { score: state.score, breakdown, difficulty: diff.label };
 }
