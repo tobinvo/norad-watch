@@ -15,9 +15,9 @@ export function updateDefcon() {
     newDefcon = 1;
   } else if (state.citiesHit >= 1 || activeThreats >= 5) {
     newDefcon = 2;
-  } else if (activeThreats >= 3 || state.currentWave >= 3) {
+  } else if (activeThreats >= 3) {
     newDefcon = 3;
-  } else if (activeThreats >= 1 || state.currentWave >= 1) {
+  } else if (activeThreats >= 1) {
     newDefcon = 4;
   }
 

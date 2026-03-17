@@ -129,10 +129,48 @@ export function playSweepTick() {
   tone(1200, 0.05, 'sine', 0.04);
 }
 
-// 2. Detection ping — pitch scales with proximity (0=far, 1=close)
+// 2. Detection ping — CRT scope-style contact acquisition
 export function playDetectionPing(proximity = 0.5) {
-  const freq = 800 + proximity * 600; // 800-1400 Hz
-  tone(freq, 0.08, 'sine', 0.12);
+  if (!audioCtx || !initialized) return;
+  const now = audioCtx.currentTime;
+  const freq = 1800 + proximity * 600; // 1800-2400 Hz — high, thin, CRT-like
+
+  // Primary ping — sharp transient with tight resonant ring
+  const osc = audioCtx.createOscillator();
+  const oscGain = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(freq, now);
+  osc.frequency.exponentialRampToValueAtTime(freq * 0.7, now + 0.5);
+  // Sharp attack, quick drop, long quiet tail
+  oscGain.gain.setValueAtTime(0.0, now);
+  oscGain.gain.linearRampToValueAtTime(0.18, now + 0.003); // 3ms attack
+  oscGain.gain.exponentialRampToValueAtTime(0.04, now + 0.06);
+  oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+
+  // High-Q bandpass — gives it that narrow, ringing CRT character
+  const bpf = audioCtx.createBiquadFilter();
+  bpf.type = 'bandpass';
+  bpf.frequency.value = freq;
+  bpf.Q.value = 20;
+
+  osc.connect(bpf);
+  bpf.connect(oscGain);
+  oscGain.connect(masterGain);
+  osc.start(now);
+  osc.stop(now + 0.55);
+
+  // Subtle secondary harmonic — adds body
+  const osc2 = audioCtx.createOscillator();
+  const gain2 = audioCtx.createGain();
+  osc2.type = 'sine';
+  osc2.frequency.value = freq * 0.5;
+  gain2.gain.setValueAtTime(0.0, now);
+  gain2.gain.linearRampToValueAtTime(0.05, now + 0.003);
+  gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+  osc2.connect(gain2);
+  gain2.connect(masterGain);
+  osc2.start(now);
+  osc2.stop(now + 0.3);
 }
 
 // 3. Alert klaxon — two-tone siren
@@ -339,17 +377,41 @@ export function playAwacsDown() {
   }, 400);
 }
 
-// Wave incoming — escalating alarm
+// Wave incoming — steady warning tone, two pulses
 export function playWaveIncoming() {
   if (!audioCtx || !initialized) return;
-  sweepTone(300, 600, 0.2, 'square', 0.12);
-  setTimeout(() => {
-    if (audioCtx && initialized) sweepTone(400, 800, 0.2, 'square', 0.14);
-  }, 250);
+  const now = audioCtx.currentTime;
+
+  // Two even pulses of a mid-frequency tone — like a shipboard threat warning
+  for (let i = 0; i < 2; i++) {
+    const t = now + i * 0.3;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 660;
+    gain.gain.setValueAtTime(0.0, t);
+    gain.gain.linearRampToValueAtTime(0.16, t + 0.01);
+    gain.gain.setValueAtTime(0.16, t + 0.15);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    osc.connect(gain);
+    gain.connect(masterGain);
+    osc.start(t);
+    osc.stop(t + 0.25);
+  }
 }
 
 // Damage / cripple hit
 export function playDamageHit() {
   tone(400, 0.15, 'triangle', 0.10);
   noiseBurst(0.1, 800, 2, 0.06);
+}
+
+// Probe turn-back — descending tone indicating contact breaking off
+export function playProbeTurnBack() {
+  sweepTone(900, 500, 0.3, 'sine', 0.08);
+}
+
+// Scramble siren — short rising tone when aircraft launches
+export function playScrambleSiren() {
+  sweepTone(400, 800, 0.2, 'sine', 0.10);
 }

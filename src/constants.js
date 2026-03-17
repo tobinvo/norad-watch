@@ -125,11 +125,8 @@ export const THREAT_TYPES = {
 };
 
 // ═══════════════════════════════════════════
-// WAVE SYSTEM (game-ms)
+// SHIFT SYSTEM — timing now in data/scenarios.js
 // ═══════════════════════════════════════════
-
-export const WAVE_BREAK = 90000;
-export const WAVE_FIRST_DELAY = 45000;
 
 // ═══════════════════════════════════════════
 // AIRCRAFT TYPES — speeds in knots
@@ -355,3 +352,16 @@ export const MIDCOURSE_LOST_PK_MOD = 0.5;  // Pk multiplier when mid-course guid
 export const TANKER_REFUEL_RANGE = 5;       // nm — fighters within this of an on-station tanker get fuel
 export const TANKER_REFUEL_RATE = 0.15;     // fuel units per game-second restored to receiving fighter
 export const TANKER_REFUEL_TARGET = 0.90;   // refuel to 90% of fuelMax
+
+// Engagement
+export const REATTACK_COOLDOWN = 5000;  // game-ms before interceptor can fire again after miss
+export const TRACKING_AUTOFIRE_DELAY = 2000;  // game-ms in TRACKING before auto-fire
+
+// Scramble delay (real seconds at 1x — scales with time compression via GAME_SPEED)
+export const SCRAMBLE_DELAY = {
+  'F-16C': 450,    // 15s real at 1x (game-seconds)
+  'F-15A': 600,    // 20s real
+  'F-106A': 750,   // 25s real
+  'E-3A': 1350,    // 45s real
+  'KC-135': 1350,  // 45s real
+};

@@ -2,10 +2,11 @@ import { AIRCRAFT_TYPES, THREAT_TYPES, ARRIVAL_THRESHOLD, ID_RANGE, ID_TIME, CIV
   MISSILE_TYPES, PK_TARGET_MODIFIERS, DAMAGE_DESTROY_CHANCE, MISSILE_ARRIVAL_DIST,
   TANKER_REFUEL_RANGE, TANKER_REFUEL_RATE, TANKER_REFUEL_TARGET,
   DATA_LINK_RANGE, FIGHTER_ORBIT_RATE, MIDCOURSE_LOST_PK_MOD,
-  ESCORT_OFFSET_DISTANCE, ESCORT_COHESION_RANGE } from './constants.js';
+  ESCORT_OFFSET_DISTANCE, ESCORT_COHESION_RANGE, SCRAMBLE_DELAY,
+  REATTACK_COOLDOWN } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
-import { playSplash, playNuclearDetonation, playDamageHit } from './audio.js';
+import { playSplash, playNuclearDetonation, playDamageHit, playProbeTurnBack } from './audio.js';
 
 // ═══════════════════════════════════════════
 // CITY
@@ -35,7 +36,7 @@ export function createBase(name, x, y, roster) {
 // INTERCEPTOR
 // ═══════════════════════════════════════════
 
-// States: READY, AIRBORNE, CAP, RTB, ID_MISSION, REFUELING, CRASHED
+// States: READY, SCRAMBLING, AIRBORNE, TRACKING, CAP, RTB, ID_MISSION, REFUELING, CRASHED
 export function createInterceptor(base, typeName) {
   const num = state.nextInterceptorNum++;
   const spec = AIRCRAFT_TYPES[typeName];
@@ -71,6 +72,12 @@ export function createInterceptor(base, typeName) {
     missionLeg: 0,            // current waypoint index in mission
     waypoints: [],            // ad-hoc waypoints (shift+right-click)
     waypointIndex: 0,         // current index in ad-hoc waypoints
+    // Scramble delay
+    scrambleUntil: 0,         // gameTime (ms) when scramble completes
+    scrambleOrder: null,      // { type: 'ENGAGE'|'ID'|'CAP'|'PATROL', target?, capPoint?, mission? }
+    // Engagement model
+    radarCold: false,         // G key toggle — cold = no radar emissions, can't fire SARH/ACTIVE
+    reattackUntil: 0,         // gameTime (ms) — cooldown after miss before next fire
   };
 }
 
@@ -113,6 +120,13 @@ export function createThreat(x, y, targetCity, typeName) {
     classCategory: null,       // rough category after classification
     sweepsSeen: 0,
     damaged: false,             // crippled by missile hit (speed halved)
+
+    // Phase 13 — probe/attack intent & waypoints
+    intent: 'ATTACK',          // 'PROBE' or 'ATTACK' — set by spawner
+    waypoints: [],              // ingress waypoints before city targeting
+    waypointIndex: 0,           // current waypoint being flown to
+    turnedBack: false,          // probe has reversed course
+    turnBackRate: 0,            // radians/sec for gradual turn
 
     // Formation (set by spawner for grouped threats)
     formationId: null,          // e.g. 'STRIKE-1'
@@ -282,6 +296,7 @@ function normalizeAngle(a) {
 export function isInRadarCone(interceptor, contact) {
   const spec = AIRCRAFT_TYPES[interceptor.type];
   if (!spec.radarRange || !spec.radarCone) return false;
+  if (interceptor.radarCold) return false;
 
   const dx = contact.x - interceptor.x;
   const dy = contact.y - interceptor.y;
@@ -317,6 +332,8 @@ export function hasRadarTrack(interceptor, contact) {
   const mSpec = MISSILE_TYPES[weapon.type];
   // Unguided and IR don't need radar lock
   if (mSpec.guidance === 'UNGUIDED' || mSpec.guidance === 'IR') return true;
+  // Radar cold — can't track with radar
+  if (interceptor.radarCold) return false;
   // SARH and ACTIVE need radar lock (target in radar cone)
   return isInRadarCone(interceptor, contact);
 }
@@ -326,8 +343,7 @@ function updateMidcourse(missile) {
   if (!missile.midcourseActive) return;
 
   const shooter = missile.shooter;
-  if (!shooter || shooter.state === 'CRASHED' || shooter.state === 'READY' ||
-      shooter.state === 'TURNAROUND' || shooter.state === 'MAINTENANCE') {
+  if (!shooter || ['CRASHED', 'READY', 'TURNAROUND', 'MAINTENANCE', 'SCRAMBLING'].includes(shooter.state)) {
     missile.midcourseActive = false;
     addLog(`${missile.id} LOST MID-COURSE — SHOOTER UNAVAILABLE`, 'warn');
     return;
@@ -433,8 +449,75 @@ export function moveContact(contact, dSec) {
     }
   }
 
+  // Probe turn-back — probe reverses course when interceptor closes within 30nm
+  if (!contact.isCivilian && contact.intent === 'PROBE' && !contact.turnedBack) {
+    const PROBE_TURN_DIST = 30; // nm — interceptor proximity triggers turn-back
+    for (const interceptor of state.interceptors) {
+      if (interceptor.state === 'CRASHED' || interceptor.state === 'READY' ||
+          interceptor.state === 'SCRAMBLING' || interceptor.state === 'TURNAROUND' ||
+          interceptor.state === 'MAINTENANCE') continue;
+      if (interceptor.type === 'E-3A' || interceptor.type === 'KC-135') continue;
+      const dx = interceptor.x - contact.x;
+      const dy = interceptor.y - contact.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < PROBE_TURN_DIST) {
+        contact.turnedBack = true;
+        // Turn rate: ~3°/sec in game time — gradual visible turn
+        contact.turnBackRate = (3 * Math.PI / 180);
+        // Target heading: roughly back the way they came (±30° randomness)
+        contact.turnBackTarget = contact.heading + Math.PI + (Math.random() - 0.5) * (Math.PI / 3);
+        contact.turnBackRemaining = Math.PI; // ~180° to turn
+        if (contact.detected) {
+          addLog(`${contact.id} TURNING AWAY — POSSIBLE PROBE`, '');
+          playProbeTurnBack();
+        }
+        break;
+      }
+    }
+  }
+
+  // Execute gradual turn-back (probes)
+  if (contact.turnedBack && contact.turnBackRemaining > 0) {
+    const turnStep = contact.turnBackRate * dSec;
+    const remaining = contact.turnBackRemaining;
+    const step = Math.min(turnStep, remaining);
+    // Turn toward target heading
+    const diff = contact.turnBackTarget - contact.heading;
+    const sign = Math.sin(diff) >= 0 ? 1 : -1;
+    contact.heading += sign * step;
+    contact.turnBackRemaining -= step;
+    contact.hdgDeg = Math.round(((90 - contact.heading * 180 / Math.PI) + 360) % 360);
+  }
+
+  // Waypoint following — fly to waypoints before heading for target city
+  if (!contact.isCivilian && !contact.turnedBack && contact.waypoints && contact.waypoints.length > 0
+      && contact.waypointIndex < contact.waypoints.length) {
+    const wp = contact.waypoints[contact.waypointIndex];
+    const dx = wp.x - contact.x;
+    const dy = wp.y - contact.y;
+    const distToWp = Math.sqrt(dx * dx + dy * dy);
+    if (distToWp < 5) {
+      // Reached waypoint — advance to next
+      contact.waypointIndex++;
+      // If all waypoints done, heading will revert to city targeting below
+    } else {
+      // Steer toward waypoint
+      contact.heading = Math.atan2(dy, dx);
+      contact.hdgDeg = Math.round(((90 - contact.heading * 180 / Math.PI) + 360) % 360);
+    }
+  }
+  // Re-home on target city if waypoints done and not turning back
+  else if (!contact.isCivilian && !contact.turnedBack && contact.targetCity
+           && !contact.targetAWACS && !contact.targetSite
+           && contact.formationRole !== 'ESCORT') {
+    const dx = contact.targetCity.x - contact.x;
+    const dy = contact.targetCity.y - contact.y;
+    contact.heading = Math.atan2(dy, dx);
+    contact.hdgDeg = Math.round(((90 - contact.heading * 180 / Math.PI) + 360) % 360);
+  }
+
   // Fighter evasion — jink when interceptor is closing
-  if (!contact.isCivilian) {
+  if (!contact.isCivilian && !contact.turnedBack) {
     const spec = THREAT_TYPES[contact.type];
     if (spec && spec.evasionChance && state.gameTime - (contact.lastEvasionTime || 0) > spec.evasionCooldown) {
       for (const interceptor of state.interceptors) {
@@ -506,6 +589,39 @@ function computeInterceptPoint(interceptor, target) {
 export function moveInterceptor(interceptor, dSec) {
   if (interceptor.state === 'READY' || interceptor.state === 'MAINTENANCE') return;
 
+  // Scrambling — waiting on ground, countdown to airborne
+  if (interceptor.state === 'SCRAMBLING') {
+    if (state.gameTime >= interceptor.scrambleUntil) {
+      const order = interceptor.scrambleOrder;
+      interceptor.scrambleOrder = null;
+      interceptor.scrambleUntil = 0;
+
+      if (order && order.type === 'ENGAGE' && order.target && order.target.state === 'ACTIVE') {
+        interceptor.state = 'AIRBORNE';
+        interceptor.target = order.target;
+      } else if (order && order.type === 'ID' && order.target && order.target.state === 'ACTIVE') {
+        interceptor.state = 'ID_MISSION';
+        interceptor.idTarget = order.target;
+        interceptor.idProgress = 0;
+      } else if (order && order.type === 'PATROL' && order.mission) {
+        interceptor.state = 'CAP';
+        interceptor.mission = order.mission;
+        interceptor.missionLeg = 0;
+        interceptor.capPoint = null;
+        order.mission.assignedInterceptor = interceptor;
+      } else if (order && order.type === 'CAP' && order.capPoint) {
+        interceptor.state = 'CAP';
+        interceptor.capPoint = order.capPoint;
+      } else {
+        // Fallback — CAP at base
+        interceptor.state = 'CAP';
+        interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
+      }
+      addLog(`${interceptor.id} AIRBORNE`, '');
+    }
+    return;
+  }
+
   // Turnaround — check if complete
   if (interceptor.state === 'TURNAROUND') {
     if (state.gameTime >= interceptor.turnaroundUntil) {
@@ -566,7 +682,7 @@ export function moveInterceptor(interceptor, dSec) {
 
   let targetX, targetY;
 
-  if (interceptor.state === 'AIRBORNE' && interceptor.target) {
+  if ((interceptor.state === 'AIRBORNE' || interceptor.state === 'TRACKING') && interceptor.target) {
     const t = interceptor.target;
     // Target destroyed — revert to CAP at current position
     if (t.state !== 'ACTIVE') {
@@ -600,7 +716,7 @@ export function moveInterceptor(interceptor, dSec) {
   } else if (interceptor.state === 'RTB') {
     targetX = interceptor.base.x;
     targetY = interceptor.base.y;
-  } else if (interceptor.state === 'AIRBORNE' && !interceptor.target) {
+  } else if ((interceptor.state === 'AIRBORNE' || interceptor.state === 'TRACKING') && !interceptor.target) {
     // Lost target — revert to CAP
     interceptor.state = 'CAP';
     interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
@@ -717,8 +833,8 @@ export function moveInterceptor(interceptor, dSec) {
       }
       return;
     }
-    // AIRBORNE with target — keep pursuing, don't stop at intercept point
-    if (interceptor.state === 'AIRBORNE' && interceptor.target) {
+    // AIRBORNE/TRACKING with target — keep pursuing, don't stop at intercept point
+    if ((interceptor.state === 'AIRBORNE' || interceptor.state === 'TRACKING') && interceptor.target) {
       // Recalculate — target is moving, keep closing
     } else {
       // Orbiting at a point — rotate radar heading
@@ -872,6 +988,7 @@ export function moveMissile(missile, dSec) {
         missile.state = 'MISS';
         missile.resolveTime = state.gameTime;
         state.missilesMissed++;
+        setReattackCooldown(missile);
         addLog(`${missile.id} SEEKER LOST LOCK — ${target.id} EVADED`, 'warn');
         return;
       }
@@ -902,6 +1019,7 @@ export function moveMissile(missile, dSec) {
       missile.state = 'MISS';
       missile.resolveTime = state.gameTime;
       state.missilesMissed++;
+      setReattackCooldown(missile);
       addLog(`${missile.id} SPARROW LOST ILLUMINATION — MISS`, 'warn');
       return;
     }
@@ -921,6 +1039,7 @@ export function moveMissile(missile, dSec) {
         missile.state = 'MISS';
         missile.resolveTime = state.gameTime;
         state.missilesMissed++;
+        setReattackCooldown(missile);
         addLog(`${missile.id} IR SEEKER LOST — ${target.id} EVADED`, 'warn');
         return;
       }
@@ -954,7 +1073,14 @@ export function moveMissile(missile, dSec) {
     missile.state = 'MISS';
     missile.resolveTime = state.gameTime;
     state.missilesMissed++;
+    setReattackCooldown(missile);
     addLog(`${missile.id} ${missile.type} LOST TRACK — MISS`, 'warn');
+  }
+}
+
+function setReattackCooldown(missile) {
+  if (missile.shooter) {
+    missile.shooter.reattackUntil = state.gameTime + REATTACK_COOLDOWN;
   }
 }
 
@@ -1050,6 +1176,7 @@ function resolveMissileArrival(missile) {
     missile.state = 'MISS';
     missile.resolveTime = state.gameTime;
     state.missilesMissed++;
+    setReattackCooldown(missile);
     addLog(`${missile.id} ${missile.type} MISS — ${contact.id} EVADED`, 'warn');
   }
 }

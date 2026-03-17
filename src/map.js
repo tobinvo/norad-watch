@@ -1,5 +1,5 @@
 import { GREEN_MAP, GREEN_DIM, GREEN_MID } from './constants.js';
-import { SECTOR, COASTLINE, LONG_ISLAND, toCanvas, nmToPixels } from './sector.js';
+import { SECTOR, COASTLINE, toCanvas, nmToPixels } from './sector.js';
 
 // ═══════════════════════════════════════════
 // SECTOR MAP DRAWING
@@ -95,12 +95,12 @@ function drawGrid(ctx) {
   // Grid labels (every 100nm)
   ctx.font = '8px "Courier New", monospace';
   ctx.fillStyle = '#0d2a10';
-  for (let x = -200; x <= 200; x += 100) {
+  for (let x = -ext; x <= ext; x += 100) {
     if (x === 0) continue;
     const [px, py] = toCanvas(x, -extY);
     ctx.fillText(`${x}`, px - 10, py - 4);
   }
-  for (let y = -200; y <= 200; y += 100) {
+  for (let y = -extY; y <= extY; y += 100) {
     if (y === 0) continue;
     const [px, py] = toCanvas(-ext, y);
     ctx.fillText(`${y}`, px + 4, py + 3);
@@ -152,7 +152,6 @@ export function drawMap(ctx) {
 
   // Coastline
   drawPolyline(ctx, COASTLINE, toCanvas, GREEN_MAP, 1.2);
-  drawPolyline(ctx, LONG_ISLAND, toCanvas, GREEN_MAP, 1.0);
 
   drawScaleBar(ctx, w, h);
   drawSectorLabel(ctx);

@@ -3,7 +3,7 @@
 A browser-based cold-war NORAD air defense simulation. The player manages radar contacts, scrambles interceptors, and defends North American cities against escalating waves of airborne threats. Prioritizes the "control tower" feel — managing information and making decisions, not clicking frantically.
 
 ## Project Status
-**Phase: 12A complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post. Phase 6 added IFF pipeline + civilian traffic. Phase 7 added WCS (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements. Phase 8 added time compression (1-16x), auto-pause on critical events, game clock. Phase 9A added turnaround time, sortie limits, fuel range envelopes. Phase 9B added missiles as map entities, Pk, damage model. Phase 9C added tanker support, patrol missions (define/assign/auto-loop), ad-hoc waypoints (shift+right-click), patrol auto-engagement. Phase 12A added procedural sound design (Web Audio API). Next: Phase 13 (Tactical Overhaul).
+**Phase: 13 complete** — Phases 1-4 built arcade prototype. Phase 5 single-sector command post. Phase 6 IFF + civilians. Phase 7 WCS/ROE. Phase 8 time compression. Phase 9A-C resource pressure + missiles + missions. Phase 10 sensor depth. Phase 11A-C zoom/EW/formations. Phase 12A sound design. Phase 13 tactical overhaul: Alaska ADIZ sector (300nm), SCRAMBLING/TRACKING states, probe vs attack AI, shift-based spawning, ingress waypoints, radar hot/cold. Next: Phase 14+ (difficulty scaling, scenario variety, weather, debrief).
 
 ## Tech Stack
 - **Vanilla JavaScript** + **HTML5 Canvas** — no frameworks, no build step
@@ -31,7 +31,7 @@ norad-watch/
 │   ├── main.js           # Game init, loop, resize handling
 │   ├── constants.js      # Colors, speeds, ranges, aircraft/threat/missile specs
 │   ├── state.js          # Game state object
-│   ├── sector.js         # NE ADIZ sector definition, coordinate conversion
+│   ├── sector.js         # Alaska ADIZ sector definition, coordinate conversion
 │   ├── map.js            # Coastline data + grid/boundary drawing
 │   ├── radar.js          # Sweep rendering, blip reveal/fade, missiles, effects
 │   ├── entities.js       # Base, Interceptor, Threat, Missile, City + movement
@@ -186,49 +186,25 @@ norad-watch/
 - **Phase 12A:** Nuclear detonation ✓ — deep rumble + white noise burst for Genie hits.
 - **Phase 12A:** Volume slider ✓ — range input in top status bar, CRT-styled.
 
-### Phase 13: Tactical Overhaul (Next)
-**Goal:** Transform from dispatcher ("click target, wait") to tactical commander ("vector, assess, decide, act"). Most contacts are boundary probes that turn back. Real attacks are rare and terrifying. 3-4 player decisions per engagement.
+### Phase 13: Tactical Overhaul ✓
+**Goal:** Transform from dispatcher to tactical commander. Most contacts are boundary probes that turn back. Real attacks are rare and terrifying.
 
-**Build incrementally — 5 steps, commit & test after each.**
-
-#### Step 1: Roster & Scramble Delay
-- Expanded rosters (~18 fighters across 3 bases, up from ~9). 2 AWACS, 2 tankers.
-- `SCRAMBLING` state — aircraft take 15-45s real-time to get airborne (varies by type). Countdown in HUD.
-- Standing CAP as core gameplay — player establishes patrol coverage on game start.
-
-#### Step 2: Engagement Model Rework
-- **No auto-fire** — interceptors reaching weapons range enter `TRACKING` state (follow target, maintain geometry, wait for player command)
-- **Manual fire** — right-click on tracked target to fire. Context-dependent: right-click = "engage" when not tracking, "fire" when tracking.
-- **Weapons hot/cold** — G key toggles interceptor radar on/off. Cold approach = stealthy but can't fire radar-guided weapons. IR weapons (Sidewinder, Falcon) fire cold.
-- **SARH guidance commitment** — after firing Sparrow, interceptor must maintain heading toward target. Turning away = missile goes blind.
-- **Reattack setup** — after miss, interceptor must reposition and re-establish track (no instant re-fire).
-
-#### Step 3: Threat Behavior Overhaul
-- **Probe vs. attack intent** — each contact has hidden `intent: 'PROBE'` (~70-80%) or `'ATTACK'` (~20-30%). Player can't tell which until contact either turns back or doesn't.
-- **Probe turn-back** — probes fly toward ADIZ, turn away when interceptor closes within ~30nm. Gradual turn, visible on scope.
-- **Ingress waypoints** — threats spawn with 1-2 waypoints (approach from unexpected angles, not straight beeline to city).
-- **"This one isn't turning"** — the core tension moment. Conditioned by routine probes, player must recognize and react to real attacks.
-
-#### Step 4: Scenario Rebalance
-- **Shift-based spawning** — replace 5-wave structure with continuous "shift" (~45 min game-time). Contacts at irregular intervals.
-- **Incident types:** SOLO_PROBE, PAIR_PROBE, FORMATION_PROBE, SOLO_ATTACK, FORMATION_ATTACK
-- **~12-15 incidents** per shift, 2-3 are real attacks, rest are probes.
-- **Pacing:** Setup (no contacts) → routine probes → first real attack → tempo increases → final push while defenses stretched.
-- **Win/Lose:** Win = shift ends with cities standing. Lose = all cities destroyed.
-
-#### Step 5: Polish
-- Sound hooks for new events (probe turn-back, weapons hot, scramble siren)
-- HUD messaging for shift-based play
-- Tune probe turn-back behavior and pacing
-- Playtest and balance
+- **Phase 13:** Alaska ADIZ sector ✓ — Replaced NE ADIZ (500nm) with Western Alaska ADIZ (300nm across). Bering Sea approaches. 3 coastal radar sites (Tin City, Cape Romanzof, Cape Newenham), 2 forward bases (Galena FOL, King Salmon AFS), 2 cities (Fairbanks, Anchorage). Threats spawn from west/northwest/north. Tighter sector makes engagement geometry visible on scope.
+- **Phase 13:** SCRAMBLING state ✓ — Aircraft take 15-45s game-time to get airborne (varies by type: F-16C 15s, F-15A 20s, F-106A 25s, E-3A/KC-135 45s). Countdown in HUD. Scramble siren sound on launch.
+- **Phase 13:** TRACKING state ✓ — Interceptors entering weapons range transition to TRACKING (follow target, maintain geometry). Auto-fire after 2s delay. Player can still fire early via right-click or prevent fire with radar cold (G key) / WCS HOLD.
+- **Phase 13:** Radar hot/cold ✓ — G key toggles interceptor radar. Cold = can't fire SARH/ACTIVE weapons, auto-falls back to IR secondaries. Radar cone hidden when cold.
+- **Phase 13:** Reattack cooldown ✓ — 5s game-time cooldown after missile miss before interceptor can fire again (no instant re-fire).
+- **Phase 13:** Probe vs attack intent ✓ — Each contact spawns with hidden intent (PROBE ~70% early, ~40% late, or ATTACK). Cruise missiles/ICBMs/ARMs always ATTACK. Probes turn back when interceptor closes within 30nm — gradual visible turn on scope with descending tone. Log: "TURNING AWAY — POSSIBLE PROBE". Core tension: "this one isn't turning."
+- **Phase 13:** Ingress waypoints ✓ — Threats spawn with 1-2 waypoints offset from direct path. Approach from unexpected angles instead of beelining at cities. Probes get 1 waypoint, attacks get 1-2.
+- **Phase 13:** Shift-based spawning ✓ — Replaced 5-wave system with 45-minute game-time shift. 17 incidents at irregular intervals: solo probes, pair probes, formation probes, solo attacks, formation attacks, ARM strikes. Pacing: 3 min setup → routine probes → first real attack at ~15 min → tempo increase → final push with cruise missiles and ICBM. Shift countdown timer in status bar.
+- **Phase 13:** Sound hooks ✓ — Probe turn-back (descending tone), scramble siren (rising tone). Detection ping only (removed per-contact wave alarm).
 
 ### Phase 14+: Future (Deferred)
 - **Difficulty scaling** — Cadet (auto-ID, no civilians) → Veteran (full IFF, civilians, SEAD)
-- **Scenario variety** — Multiple sectors (Alaska, Iceland-Faroes Gap, Korea), different geography/threats/assets
+- **Scenario variety** — Additional sectors (NE ADIZ, Iceland-Faroes Gap, Korea), different geography/threats/assets
 - **Weather sectors** — Overlay zones degrading radar detection
 - **Post-scenario debrief** — Timeline replay showing all contacts, decisions, outcomes
 - **Pre-mission asset placement** — Budget to position radar sites, SAM batteries, bases
-- **Tighter sector / new location** — 100-150nm across, watch BVR engagements develop
 - **Terrain masking** — blocked until altitude is a real mechanic
 - **Altitude as full mechanic** — radar horizon, engagement envelopes, climb/descent time
 
@@ -248,7 +224,7 @@ norad-watch/
 | 11B   | ECM jamming, SEAD/ARM | "They're fighting back smart" (done) |
 | 11C   | Formation tactics, coordinated strikes | "They're organized" (done) |
 | 12A   | Sound design | "I can hear the tension" (done) |
-| 13    | Manual engagement, probe/attack AI, shift-based pacing | "Is this one real?" |
+| 13    | Alaska sector, scramble delay, tracking, probe/attack AI, shift-based pacing | "Is this one real?" (done) |
 | 14+   | Difficulty, new sectors, weather, debrief, asset placement | Full experience |
 
 ## Core Mechanics
@@ -294,12 +270,15 @@ norad-watch/
 
 ### Aircraft States
 - READY — on ground at base, available for scramble
+- SCRAMBLING — on ground, preparing to launch (15-45s countdown by type). Transitions to ordered state (AIRBORNE/CAP/etc.)
 - TURNAROUND — on ground, refueling/rearming (countdown timer, unavailable)
 - MAINTENANCE — sortie limit reached, permanently out of game
-- AIRBORNE — in flight, heading to target (fires missile at weapons range)
+- AIRBORNE — in flight, heading to target
+- TRACKING — in weapons range, following target, auto-fires after 2s delay. Radar cold prevents radar-guided fire.
 - RTB — returning to base
 - CAP — orbiting patrol point, following waypoints, or flying patrol mission (also used post-kill with weapons remaining)
 - ID_MISSION — closing on unknown contact for visual identification
+- REFUELING — diverting to or refueling from KC-135 tanker
 - CRASHED — fuel exhaustion, lost permanently
 
 ### Missions & Waypoints

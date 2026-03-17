@@ -22,15 +22,11 @@ export const state = {
   nextInterceptorNum: 1,
   nextMissileNum: 1,
 
-  // Spawning / Waves
+  // Spawning / Shift
   lastSpawnTime: 0,
   totalSpawned: 0,
-  currentWave: 0,
-  waveSpawnIndex: 0,
-  waveActive: false,
-  waveAnnounced: false,
-  waveBreakUntil: 0,
-  wavesComplete: false,
+  incidentsSpawned: [],   // boolean array tracking which incidents have spawned
+  shiftComplete: false,
 
   // Civilian traffic
   lastCivilianSpawn: 0,
@@ -87,5 +83,4 @@ export const state = {
 
   // Formations
   nextFormationNum: 1,
-  waveFormationsSpawned: false,
 };

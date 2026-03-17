@@ -1,151 +1,108 @@
 // ═══════════════════════════════════════════
-// NORTHEAST ADIZ SECTOR DEFINITION
+// WESTERN ALASKA ADIZ SECTOR DEFINITION
 // All positions in nautical miles from sector center
-// Sector center: ~41°N, 71°W (south of Cape Cod)
+// Sector center: ~63°N, 157°W (interior western Alaska)
+// Bering Sea approaches — Soviet bomber/recon corridor
 // ═══════════════════════════════════════════
 
 export const SECTOR = {
-  name: 'NORTHEAST ADIZ',
-  centerLat: 41.0,
-  centerLon: -71.0,
+  name: 'ALASKA ADIZ — WESTERN SECTOR',
+  centerLat: 63.0,
+  centerLon: -157.0,
 
   // Viewport bounds in nm from center
-  extentX: 250,  // -250 to +250 nm east-west
-  extentY: 250,  // -250 to +250 nm north-south
+  extentX: 150,  // -150 to +150 nm east-west (300nm across)
+  extentY: 150,  // -150 to +150 nm north-south
 
   // Prosecution boundary — how far outside sector fighters can chase
-  prosecutionBuffer: 50,
+  prosecutionBuffer: 40,
 
   // Radar sites (x = nm east, y = nm north from center)
+  // Coastal early warning line facing the Bering Sea
   radarSites: [
-    { name: 'NORTH TRURO AFS', x: 30, y: 60, rangeNm: 200 },
-    { name: 'MONTAUK AFS', x: -20, y: -10, rangeNm: 180 },
-    { name: 'GIBBSBORO AFS', x: -100, y: -80, rangeNm: 170 },
+    { name: 'TIN CITY AFS', x: -120, y: 115, rangeNm: 180 },       // NW — Bering Strait watch
+    { name: 'CAPE ROMANZOF AFS', x: -130, y: 5, rangeNm: 170 },    // W — central coast
+    { name: 'CAPE NEWENHAM AFS', x: -110, y: -95, rangeNm: 160 },   // SW — Bristol Bay
   ],
 
-  // Bases
+  // Bases — interior, between coast and cities
   bases: [
-    { name: 'OTIS ANGB', x: 25, y: 55, roster: ['F-106A', 'F-106A', 'F-16C', 'F-16C', 'KC-135'] },
-    { name: 'GRIFFISS AFB', x: -150, y: 120, roster: ['F-16C', 'F-16C', 'E-3A'] },
-    { name: 'LANGLEY AFB', x: -110, y: -190, roster: ['F-15A', 'F-15A', 'F-15A', 'F-106A', 'E-3A', 'KC-135'] },
+    { name: 'GALENA FOL', x: -30, y: 85, roster: ['F-15A', 'F-15A', 'F-15A', 'F-16C', 'F-16C', 'E-3A', 'KC-135'] },
+    { name: 'KING SALMON AFS', x: -10, y: -105, roster: ['F-16C', 'F-16C', 'F-16C', 'F-106A', 'F-106A', 'E-3A', 'KC-135'] },
   ],
 
-  // Cities to defend
+  // Cities to defend — eastern side of sector
   cities: [
-    { name: 'BOSTON', x: 20, y: 80 },
-    { name: 'NEW YORK', x: -50, y: -10 },
-    { name: 'PHILADELPHIA', x: -85, y: -60 },
-    { name: 'WASHINGTON DC', x: -130, y: -140 },
+    { name: 'FAIRBANKS', x: 110, y: 75 },
+    { name: 'ANCHORAGE', x: 100, y: -85 },
   ],
 
   // Spawn edges — threats enter from these sides
-  // Each has a side and heading range (radians, 0 = east, pi/2 = north)
   spawnEdges: [
-    { side: 'east', weight: 4 },     // primary — Atlantic approaches
-    { side: 'north', weight: 2 },     // polar route
-    { side: 'northeast', weight: 3 }, // North Atlantic
+    { side: 'west', weight: 5 },      // primary — Bering Sea approaches
+    { side: 'northwest', weight: 3 },  // Bering Strait / Chukchi Sea
+    { side: 'north', weight: 2 },      // polar route over Arctic
   ],
 };
 
 // ═══════════════════════════════════════════
-// NE US COASTLINE — simplified polyline in nm from sector center
-// Traced from Virginia Beach up to Maine
+// WESTERN ALASKA COASTLINE — simplified polyline in nm from sector center
+// Seward Peninsula → Norton Sound → Yukon-Kuskokwim Delta → Bristol Bay
 // x = east (+), y = north (+)
 // ═══════════════════════════════════════════
 
 export const COASTLINE = [
-  // Virginia Beach / Chesapeake Bay entrance
-  [-120, -195],
-  [-115, -185],
-  [-120, -175],
-  // Chesapeake Bay mouth (east side)
-  [-110, -170],
-  [-105, -160],
-  // Eastern Shore / Delmarva
-  [-100, -150],
-  [-95, -135],
-  [-90, -120],
-  // Delaware Bay
-  [-85, -110],
-  [-80, -100],
-  // New Jersey coast
-  [-75, -90],
-  [-70, -75],
-  [-65, -60],
-  [-60, -50],
-  // Sandy Hook / NY Harbor
-  [-55, -25],
-  [-50, -15],
-  // Long Island south shore
-  [-45, -10],
-  [-35, -8],
-  [-20, -6],
-  [-5, -5],
-  // Montauk Point
-  [5, -2],
-  // Block Island Sound → Rhode Island
-  [10, 5],
-  [5, 15],
-  // Narragansett Bay
-  [0, 25],
-  [5, 35],
-  // Buzzards Bay
-  [10, 40],
-  // Cape Cod — south coast
-  [15, 42],
-  [20, 43],
-  [25, 44],
-  // Cape Cod — elbow
-  [30, 45],
-  [35, 48],
-  // Cape Cod — forearm going north
-  [38, 52],
-  [40, 58],
-  // Cape Cod — fist (Provincetown)
-  [38, 65],
-  [35, 68],
-  [32, 67],
-  // Cape Cod Bay (west side of Cape)
-  [28, 60],
-  [22, 55],
-  [18, 52],
-  // Plymouth / South Shore
-  [15, 55],
-  [12, 65],
-  [10, 75],
-  // Boston Harbor
-  [15, 80],
-  [18, 85],
-  // North Shore
-  [20, 90],
-  [22, 95],
-  // Cape Ann
-  [25, 100],
-  [22, 105],
-  // NH coast
-  [18, 115],
-  [15, 125],
-  // Maine — southern coast
-  [12, 135],
-  [10, 145],
-  [15, 155],
-  [20, 165],
-  // Maine — midcoast
-  [25, 175],
-  [30, 185],
-  [35, 195],
-  [40, 205],
-];
-
-// Long Island — separate polyline (south shore already in main coastline)
-export const LONG_ISLAND = [
-  // North shore (west to east)
-  [-50, -10],
-  [-45, -3],
-  [-35, 0],
-  [-20, 2],
-  [-5, 3],
-  [5, -2],    // meets Montauk
+  // Seward Peninsula — north coast (Bering Strait)
+  [-95, 150],
+  [-105, 145],
+  [-115, 138],
+  [-125, 130],
+  // Cape Prince of Wales / Tin City area
+  [-135, 122],
+  [-140, 115],
+  // Seward Peninsula — south coast curving into Norton Sound
+  [-138, 105],
+  [-132, 95],
+  [-125, 85],
+  // Nome area
+  [-118, 78],
+  [-110, 72],
+  // Norton Sound — curves east then south
+  [-100, 65],
+  [-92, 58],
+  [-88, 50],
+  [-92, 42],
+  [-98, 35],
+  // St. Michael / Yukon Delta north
+  [-105, 28],
+  [-112, 20],
+  [-120, 12],
+  // Cape Romanzof area
+  [-130, 5],
+  [-135, -2],
+  // Yukon-Kuskokwim Delta — broad, marshy coast
+  [-138, -12],
+  [-140, -25],
+  [-138, -38],
+  [-135, -48],
+  [-130, -58],
+  // Kuskokwim Bay
+  [-125, -68],
+  [-120, -75],
+  [-115, -82],
+  // Cape Newenham
+  [-118, -92],
+  [-122, -100],
+  // Bristol Bay — curves east
+  [-115, -108],
+  [-105, -115],
+  [-95, -120],
+  [-85, -128],
+  [-75, -135],
+  [-65, -140],
+  [-55, -145],
+  [-45, -148],
+  [-35, -150],
 ];
 
 // ═══════════════════════════════════════════
@@ -268,22 +225,32 @@ export function isInProsecutionZone(nmX, nmY) {
 export function getSpawnPosition(side) {
   const ext = SECTOR.extentX;
   const extY = SECTOR.extentY;
-  const margin = 20; // spawn just outside the boundary
+  const margin = 40; // spawn well outside the boundary
 
   switch (side) {
     case 'east':
       return { x: ext + margin, y: (Math.random() - 0.5) * extY * 1.4 };
+    case 'west':
+      return { x: -ext - margin, y: (Math.random() - 0.5) * extY * 1.4 };
     case 'north':
       return { x: (Math.random() - 0.5) * ext * 1.4, y: extY + margin };
+    case 'south':
+      return { x: (Math.random() - 0.5) * ext * 1.4, y: -extY - margin };
     case 'northeast':
-      // Random along the NE corner arc
       if (Math.random() < 0.5) {
         return { x: ext + margin, y: extY * (0.2 + Math.random() * 0.8) };
       } else {
         return { x: ext * (0.2 + Math.random() * 0.8), y: extY + margin };
       }
+    case 'northwest':
+      // Random along the NW corner — Bering Strait approaches
+      if (Math.random() < 0.5) {
+        return { x: -ext - margin, y: extY * (0.2 + Math.random() * 0.8) };
+      } else {
+        return { x: -ext * (0.2 + Math.random() * 0.8), y: extY + margin };
+      }
     default:
-      return { x: ext + margin, y: (Math.random() - 0.5) * extY };
+      return { x: -ext - margin, y: (Math.random() - 0.5) * extY };
   }
 }
 

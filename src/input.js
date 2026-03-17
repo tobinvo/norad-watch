@@ -2,7 +2,9 @@ import { state } from './state.js';
 import { selectBase, selectThreat, selectInterceptor, addLog } from './hud.js';
 import { toCanvas, fromCanvas, getZoom, getPan, setPan, zoomAtPoint, resetView } from './sector.js';
 import { clearMission } from './entities.js';
-import { playEmconShift } from './audio.js';
+import { playEmconShift, playScrambleSiren } from './audio.js';
+import { SCRAMBLE_DELAY, GAME_SPEED } from './constants.js';
+import { fireWeapon } from './intercept.js';
 
 let canvasEl = null;
 
@@ -12,6 +14,19 @@ const INTERCEPTOR_HIT_RADIUS = 20;
 
 const WCS_CYCLE = ['FREE', 'TIGHT', 'HOLD'];
 const EMCON_CYCLE = ['ACTIVE', 'REDUCED', 'SILENT'];
+
+// Start scramble — puts aircraft in SCRAMBLING with a delay before going airborne
+function startScramble(interceptor, order) {
+  const delay = SCRAMBLE_DELAY[interceptor.type] || 600;
+  interceptor.state = 'SCRAMBLING';
+  interceptor.scrambleUntil = state.gameTime + delay * 1000;
+  interceptor.scrambleOrder = order;
+  interceptor.x = interceptor.base.x;
+  interceptor.y = interceptor.base.y;
+  const delaySec = Math.round(delay / GAME_SPEED);
+  addLog(`${interceptor.id} SCRAMBLING — AIRBORNE IN ${delaySec}s`, 'alert');
+  playScrambleSiren();
+}
 
 // Get effective WCS for an interceptor (unit override or global)
 export function getEffectiveWCS(interceptor) {
@@ -101,7 +116,7 @@ function handlePanEnd(e) {
 
 function findEntityAt(mx, my) {
   for (const interceptor of state.interceptors) {
-    if (interceptor.state === 'READY' || interceptor.state === 'CRASHED' || interceptor.state === 'TURNAROUND' || interceptor.state === 'MAINTENANCE') continue;
+    if (['READY', 'CRASHED', 'TURNAROUND', 'MAINTENANCE', 'SCRAMBLING'].includes(interceptor.state)) continue;
     const [ix, iy] = toCanvas(interceptor.x, interceptor.y);
     if (hitTest(mx, my, ix, iy, INTERCEPTOR_HIT_RADIUS)) return true;
   }
@@ -132,7 +147,7 @@ function handleCanvasClick(e) {
 
   // Check airborne interceptors
   for (const interceptor of state.interceptors) {
-    if (interceptor.state === 'READY' || interceptor.state === 'CRASHED' || interceptor.state === 'TURNAROUND' || interceptor.state === 'MAINTENANCE') continue;
+    if (['READY', 'CRASHED', 'TURNAROUND', 'MAINTENANCE', 'SCRAMBLING'].includes(interceptor.state)) continue;
     const [ix, iy] = toCanvas(interceptor.x, interceptor.y);
     if (hitTest(mx, my, ix, iy, INTERCEPTOR_HIT_RADIUS)) {
       selectInterceptor(interceptor);
@@ -217,11 +232,7 @@ function handleRightClick(e) {
 
       if (picked.spec.weapons === 0 && !picked.spec.secondaryWeaponType) {
         // AWACS — orbit near contact
-        picked.state = 'CAP';
-        picked.capPoint = { x: contactUnder.x, y: contactUnder.y };
-        picked.x = base.x;
-        picked.y = base.y;
-        addLog(`SCRAMBLE ORDER: ${picked.id} (${picked.type}) ${base.name} — ORBIT NEAR ${contactUnder.id}`, 'alert');
+        startScramble(picked, { type: 'CAP', capPoint: { x: contactUnder.x, y: contactUnder.y } });
       } else if (contactUnder.allegiance === 'FRIENDLY') {
         addLog(`${contactUnder.id} IS FRIENDLY — ENGAGEMENT DENIED`, 'warn');
         return;
@@ -230,20 +241,10 @@ function handleRightClick(e) {
         return;
       } else if (canEngage(picked, contactUnder)) {
         // WCS allows engagement
-        picked.state = 'AIRBORNE';
-        picked.target = contactUnder;
-        picked.x = base.x;
-        picked.y = base.y;
-        const wcsLabel = contactUnder.allegiance === 'UNKNOWN' ? ' [WCS FREE]' : '';
-        addLog(`SCRAMBLE ORDER: ${picked.id} (${picked.type}) ${base.name} → ${contactUnder.id}${wcsLabel}`, 'alert');
+        startScramble(picked, { type: 'ENGAGE', target: contactUnder });
       } else if (contactUnder.allegiance === 'UNKNOWN') {
         // TIGHT + unknown — send on ID mission
-        picked.state = 'ID_MISSION';
-        picked.idTarget = contactUnder;
-        picked.idProgress = 0;
-        picked.x = base.x;
-        picked.y = base.y;
-        addLog(`${picked.id} SCRAMBLE — VISUAL ID ON ${contactUnder.id}`, 'alert');
+        startScramble(picked, { type: 'ID', target: contactUnder });
       } else {
         addLog(`WCS ${wcs} — CANNOT ENGAGE ${contactUnder.id}`, 'warn');
         return;
@@ -253,11 +254,7 @@ function handleRightClick(e) {
       state.selectedReadyInterceptor = null;
     } else {
       // CAP orbit at clicked point
-      picked.state = 'CAP';
-      picked.capPoint = { x: nmPos.x, y: nmPos.y };
-      picked.x = base.x;
-      picked.y = base.y;
-      addLog(`${picked.id} ${base.name} — CAP ORBIT ASSIGNED`, '');
+      startScramble(picked, { type: 'CAP', capPoint: { x: nmPos.x, y: nmPos.y } });
       state.selectedBase = null;
       state.selectedThreat = null;
       state.selectedReadyInterceptor = null;
@@ -268,9 +265,15 @@ function handleRightClick(e) {
   // ── Interceptor selected: reassign, RTB, ID, or CAP ──
   if (state.selectedInterceptor) {
     const interceptor = state.selectedInterceptor;
-    if (interceptor.state === 'CRASHED' || interceptor.state === 'READY' || interceptor.state === 'TURNAROUND' || interceptor.state === 'MAINTENANCE') return;
+    if (interceptor.state === 'CRASHED' || interceptor.state === 'READY' || interceptor.state === 'TURNAROUND' || interceptor.state === 'MAINTENANCE' || interceptor.state === 'SCRAMBLING') return;
 
     if (contactUnder && contactUnder.state === 'ACTIVE') {
+      // TRACKING + right-click on tracked target = FIRE
+      if (interceptor.state === 'TRACKING' && interceptor.target === contactUnder) {
+        fireWeapon(interceptor);
+        return;
+      }
+
       const wcs = getEffectiveWCS(interceptor);
 
       if (contactUnder.allegiance === 'FRIENDLY') {
@@ -420,7 +423,7 @@ function handleKeyCommand(e) {
 
   // WCS cycling — W key
   if (e.code === 'KeyW') {
-    if (state.selectedInterceptor && !['CRASHED', 'READY', 'TURNAROUND', 'MAINTENANCE'].includes(state.selectedInterceptor.state)) {
+    if (state.selectedInterceptor && !['CRASHED', 'READY', 'TURNAROUND', 'MAINTENANCE', 'SCRAMBLING'].includes(state.selectedInterceptor.state)) {
       // Cycle per-unit WCS override
       const i = state.selectedInterceptor;
       const current = i.wcs || null;
@@ -455,6 +458,17 @@ function handleKeyCommand(e) {
     playEmconShift(state.emcon);
     const labels = { ACTIVE: 'FULL EMISSION', REDUCED: 'REDUCED EMISSION', SILENT: 'EMISSIONS SILENT' };
     addLog(`EMCON → ${state.emcon} — ${labels[state.emcon]}`, state.emcon === 'SILENT' ? 'alert' : 'warn');
+    return;
+  }
+
+  // G key — toggle radar hot/cold on selected interceptor
+  if (e.code === 'KeyG') {
+    if (state.selectedInterceptor && !['CRASHED', 'READY', 'TURNAROUND', 'MAINTENANCE', 'SCRAMBLING'].includes(state.selectedInterceptor.state)) {
+      const i = state.selectedInterceptor;
+      if (i.type === 'KC-135' || i.type === 'E-3A') return; // no radar toggle on support aircraft
+      i.radarCold = !i.radarCold;
+      addLog(`${i.id} RADAR ${i.radarCold ? 'COLD' : 'HOT'}`, i.radarCold ? '' : 'warn');
+    }
     return;
   }
 

@@ -1,6 +1,6 @@
 import { state } from './state.js';
-import { THREAT_TYPES, GAME_SPEED, CIVILIAN_KILL_PENALTY, AIRCRAFT_TYPES, DATA_LINK_RANGE, AWACS_DETECTION_RANGE } from './constants.js';
-import { WAVES } from '../data/scenarios.js';
+import { THREAT_TYPES, GAME_SPEED, CIVILIAN_KILL_PENALTY, AIRCRAFT_TYPES, DATA_LINK_RANGE, AWACS_DETECTION_RANGE, SCRAMBLE_DELAY } from './constants.js';
+import { SHIFT_DURATION } from '../data/scenarios.js';
 import { ktsToMph } from './units.js';
 import { playRadioChatter, playAlertKlaxon, getMasterVolume, setMasterVolume } from './audio.js';
 
@@ -74,13 +74,13 @@ export function renderContacts() {
   const tbody = document.getElementById('contactBody');
   tbody.innerHTML = '';
 
-  const detectedContacts = state.contacts.filter(t => t.detected && t.state === 'ACTIVE');
+  const detectedContacts = state.contacts.filter(t => t.detected && t.state === 'ACTIVE' && (t._blipAlpha || 0) > 0);
 
   for (const contact of detectedContacts) {
     const tr = document.createElement('tr');
     const isActive = contact.state === 'ACTIVE';
     const assigned = state.interceptors.filter(i =>
-      (i.target === contact && i.state === 'AIRBORNE') ||
+      (i.target === contact && (i.state === 'AIRBORNE' || i.state === 'TRACKING')) ||
       (i.idTarget === contact && i.state === 'ID_MISSION')
     );
 
@@ -94,7 +94,8 @@ export function renderContacts() {
       statusText = 'MSL';
     } else if (isActive && assigned.length > 0) {
       const idAssigned = assigned.some(i => i.state === 'ID_MISSION');
-      statusText = idAssigned ? 'ID' : `INTCPT (${assigned.length})`;
+      const tracking = assigned.some(i => i.state === 'TRACKING');
+      statusText = idAssigned ? 'ID' : tracking ? `TRACK (${assigned.length})` : `INTCPT (${assigned.length})`;
     }
     if (isActive && contact.damaged) {
       statusText = 'DMG ' + statusText;
@@ -166,6 +167,12 @@ export function renderAssets() {
         html += `<div class="asset-line asset-crashed">${interceptor.id} MAINT (${interceptor.sorties}/${interceptor.spec.maxSorties})</div>`;
         continue;
       }
+      if (interceptor.state === 'SCRAMBLING') {
+        const remainMs = interceptor.scrambleUntil - state.gameTime;
+        const remainSec = Math.max(0, Math.ceil(remainMs / 1000 / GAME_SPEED));
+        html += `<div class="asset-line" style="color: #ffcc00">${interceptor.id} SCRAMBLING ${remainSec}s</div>`;
+        continue;
+      }
       if (interceptor.state === 'TURNAROUND') {
         const remainMs = interceptor.turnaroundUntil - state.gameTime;
         const remainMin = Math.max(0, Math.ceil(remainMs / 1000 / 60));
@@ -178,7 +185,7 @@ export function renderAssets() {
       const refuelInfo = interceptor.state === 'REFUELING' ? ` TANK:${interceptor.refuelTanker?.id || '?'}` : '';
       const mslTag = state.missiles.some(m => m.shooter === interceptor && m.state === 'FLIGHT') ? ' MSL' : '';
       const isPatrol = interceptor.state === 'CAP' && interceptor.mission;
-      const stateLabel = interceptor.state === 'ID_MISSION' ? 'ID' : interceptor.state === 'REFUELING' ? 'REFUEL' : isPatrol ? 'PATROL' : interceptor.state;
+      const stateLabel = interceptor.state === 'SCRAMBLING' ? 'SCRM' : interceptor.state === 'TRACKING' ? 'TRACK' : interceptor.state === 'ID_MISSION' ? 'ID' : interceptor.state === 'REFUELING' ? 'REFUEL' : isPatrol ? 'PATROL' : interceptor.state;
       const missionInfo = isPatrol ? ` ${interceptor.mission.name}` : '';
       html += `<div class="asset-line">${interceptor.id} ${stateLabel}${missionInfo}${targetInfo}${idInfo}${capInfo}${refuelInfo}${mslTag} ${fuelBarHTML(interceptor)}</div>`;
     }
@@ -198,7 +205,7 @@ export function renderSelectionDetail() {
   if (state.selectedThreat) {
     const t = state.selectedThreat;
     const assignedInterceptors = state.interceptors.filter(i =>
-      (i.target === t && i.state === 'AIRBORNE') ||
+      (i.target === t && (i.state === 'AIRBORNE' || i.state === 'TRACKING')) ||
       (i.idTarget === t && i.state === 'ID_MISSION')
     );
 
@@ -283,8 +290,17 @@ export function renderSelectionDetail() {
     html += `<div class="detail-row"><span class="detail-label">TYPE</span><span class="detail-value friendly">${i.spec.name}</span></div>`;
 
     const isPatrol = i.state === 'CAP' && i.mission;
-    const stateLabel = i.state === 'ID_MISSION' ? 'ID MISSION' : i.state === 'REFUELING' ? 'REFUELING' : isPatrol ? 'PATROL' : i.state;
-    html += `<div class="detail-row"><span class="detail-label">STATE</span><span class="detail-value">${stateLabel}</span></div>`;
+    const stateLabel = i.state === 'SCRAMBLING' ? 'SCRAMBLING' : i.state === 'TRACKING' ? 'TRACKING' : i.state === 'ID_MISSION' ? 'ID MISSION' : i.state === 'REFUELING' ? 'REFUELING' : isPatrol ? 'PATROL' : i.state;
+    const stateColor = i.state === 'TRACKING' ? ' style="color: #ffcc00"' : '';
+    html += `<div class="detail-row"><span class="detail-label">STATE</span><span class="detail-value"${stateColor}>${stateLabel}</span></div>`;
+    if (i.state === 'SCRAMBLING') {
+      const remainMs = i.scrambleUntil - state.gameTime;
+      const remainSec = Math.max(0, Math.ceil(remainMs / 1000 / GAME_SPEED));
+      html += `<div class="detail-row"><span class="detail-label">AIRBORNE</span><span class="detail-value" style="color: #ffcc00">${remainSec}s</span></div>`;
+    }
+    if (i.state === 'TRACKING') {
+      html += `<div class="detail-row"><span class="detail-label">STATUS</span><span class="detail-value" style="color: #ffcc00">WEAPONS FREE — AUTO-ENGAGE</span></div>`;
+    }
     html += `<div class="detail-row"><span class="detail-label">FUEL</span><span class="detail-value ${fuelPct <= 25 ? 'hostile' : ''}">${fuelPct}%</span></div>`;
     let weaponStr = i.spec.weaponType ? `${i.weapons}x ${i.spec.weaponType}` : 'NONE';
     if (i.spec.secondaryWeaponType) weaponStr += ` + ${i.secondaryWeapons}x ${i.spec.secondaryWeaponType}`;
@@ -301,7 +317,8 @@ export function renderSelectionDetail() {
 
     // Radar info (fighters only)
     if (i.spec.radarRange && i.spec.radarCone) {
-      html += `<div class="detail-row"><span class="detail-label">RADAR</span><span class="detail-value">${i.spec.radarRange}NM / ${Math.round(i.spec.radarCone * 2 * 180 / Math.PI)}°</span></div>`;
+      const radarState = i.radarCold ? '<span style="color: #00aaff"> COLD</span>' : '';
+      html += `<div class="detail-row"><span class="detail-label">RADAR</span><span class="detail-value">${i.spec.radarRange}NM / ${Math.round(i.spec.radarCone * 2 * 180 / Math.PI)}°${radarState}</span></div>`;
 
       // Data link status — inline check (avoids circular import)
       const awacsList = state.interceptors.filter(a => a.type === 'E-3A' && (a.state === 'AIRBORNE' || a.state === 'CAP'));
@@ -354,11 +371,11 @@ export function renderSelectionDetail() {
       html += `<div class="detail-row"><span class="detail-label">ROUTE</span><span class="detail-value">${(i.waypointIndex || 0) + 1}/${i.waypoints.length} WPS</span></div>`;
     }
 
-    if (!['RTB', 'CRASHED', 'TURNAROUND', 'MAINTENANCE'].includes(i.state)) {
+    if (!['RTB', 'CRASHED', 'TURNAROUND', 'MAINTENANCE', 'SCRAMBLING'].includes(i.state)) {
       // Check if a tanker is available for the REFUEL button
       const canRefuel = i.type !== 'KC-135' && i.type !== 'E-3A' && i.state !== 'REFUELING'
         && state.interceptors.some(t => t.type === 'KC-135' && t.state === 'CAP');
-      html += `<div class="detail-assigned" style="color: var(--yellow-warn)">R-CLICK: ENGAGE/ID/RTB | SHIFT+R: WAYPOINT | W = WCS</div>`;
+      html += `<div class="detail-assigned" style="color: var(--yellow-warn)">R-CLICK: ENGAGE/ID/RTB | G = RADAR HOT/COLD</div>`;
       html += `<div class="detail-actions"><button class="rtb-btn" data-interceptor-id="${i.id}">RTB</button>`;
       if (canRefuel) {
         html += `<button class="refuel-btn" data-interceptor-id="${i.id}">REFUEL</button>`;
@@ -372,7 +389,7 @@ export function renderSelectionDetail() {
     const b = state.selectedBase;
     const ready = b.interceptors.filter(i => i.state === 'READY');
     const airborne = b.interceptors.filter(i =>
-      !['READY', 'CRASHED', 'TURNAROUND', 'MAINTENANCE'].includes(i.state)
+      !['READY', 'CRASHED', 'TURNAROUND', 'MAINTENANCE', 'SCRAMBLING'].includes(i.state)
     );
     const turning = b.interceptors.filter(i => i.state === 'TURNAROUND');
     const maint = b.interceptors.filter(i => i.state === 'MAINTENANCE');
@@ -391,6 +408,15 @@ export function renderSelectionDetail() {
       html += `<span class="detail-value">${weaponInfo}</span>`;
       html += `<span class="detail-value">${sortieInfo}</span>`;
       html += `</div>`;
+    }
+
+    const scrambling = b.interceptors.filter(i => i.state === 'SCRAMBLING');
+    if (scrambling.length > 0) {
+      for (const i of scrambling) {
+        const remainMs = i.scrambleUntil - state.gameTime;
+        const remainSec = Math.max(0, Math.ceil(remainMs / 1000 / GAME_SPEED));
+        html += `<div class="detail-assigned" style="color: #ffcc00">${i.id} SCRAMBLING ${remainSec}s</div>`;
+      }
     }
 
     if (turning.length > 0) {
@@ -415,7 +441,7 @@ export function renderSelectionDetail() {
         const refuelInfo = i.state === 'REFUELING' ? ` TANK:${i.refuelTanker?.id || '?'}` : '';
         const fuelPct = Math.round((i.fuel / i.fuelMax) * 100);
         const isPatrol = i.state === 'CAP' && i.mission;
-        const stateLabel = i.state === 'ID_MISSION' ? 'ID' : i.state === 'REFUELING' ? 'REFUEL' : isPatrol ? 'PATROL' : i.state;
+        const stateLabel = i.state === 'TRACKING' ? 'TRACK' : i.state === 'ID_MISSION' ? 'ID' : i.state === 'REFUELING' ? 'REFUEL' : isPatrol ? 'PATROL' : i.state;
         const missionInfo = isPatrol ? ` ${i.mission.name}` : '';
         html += `<div class="detail-assigned">${i.id} ${stateLabel}${missionInfo}${targetInfo}${idInfo}${refuelInfo} FUEL:${fuelPct}%</div>`;
       }
@@ -519,14 +545,14 @@ export function initHud() {
         }
       }
 
-      picked.state = 'CAP';
-      picked.mission = mission;
-      picked.missionLeg = 0;
-      picked.capPoint = null;
+      const delay = SCRAMBLE_DELAY[picked.type] || 600;
+      picked.state = 'SCRAMBLING';
+      picked.scrambleUntil = state.gameTime + delay * 1000;
+      picked.scrambleOrder = { type: 'PATROL', mission };
       picked.x = picked.base.x;
       picked.y = picked.base.y;
-      mission.assignedInterceptor = picked;
-      addLog(`${picked.id} SCRAMBLE — ${mission.name} (${mission.waypoints.length} WPS)`, 'alert');
+      const delaySec = Math.round(delay / GAME_SPEED);
+      addLog(`${picked.id} SCRAMBLING — ${mission.name} — AIRBORNE IN ${delaySec}s`, 'alert');
       state.selectedBase = null;
       state.selectedReadyInterceptor = null;
       state.selectedMission = null;
@@ -545,7 +571,7 @@ export function initHud() {
     if (!btn) return;
     e.stopPropagation();
     const interceptor = state.selectedInterceptor;
-    if (!interceptor || ['RTB', 'CRASHED', 'TURNAROUND', 'MAINTENANCE'].includes(interceptor.state)) return;
+    if (!interceptor || ['RTB', 'CRASHED', 'TURNAROUND', 'MAINTENANCE', 'SCRAMBLING'].includes(interceptor.state)) return;
     interceptor.state = 'RTB';
     interceptor.target = null;
     interceptor.idTarget = null;
@@ -573,7 +599,7 @@ export function initHud() {
     if (!btn) return;
     e.stopPropagation();
     const interceptor = state.selectedInterceptor;
-    if (!interceptor || ['RTB', 'CRASHED', 'TURNAROUND', 'MAINTENANCE', 'REFUELING'].includes(interceptor.state)) return;
+    if (!interceptor || ['RTB', 'CRASHED', 'TURNAROUND', 'MAINTENANCE', 'REFUELING', 'SCRAMBLING'].includes(interceptor.state)) return;
     if (interceptor.type === 'KC-135' || interceptor.type === 'E-3A') return;
 
     // Find nearest on-station tanker
@@ -747,12 +773,14 @@ export function renderStatusBar() {
 
   const waveEl = document.getElementById('waveIndicator');
   if (waveEl) {
-    if (state.currentWave > 0 && state.currentWave <= WAVES.length) {
-      waveEl.textContent = `WAVE ${state.currentWave}/${WAVES.length}`;
-    } else if (state.wavesComplete) {
-      waveEl.textContent = 'FINAL';
+    // Show shift time remaining
+    const remainMs = Math.max(0, SHIFT_DURATION - state.gameTime);
+    const remainMin = Math.floor(remainMs / 60000);
+    const remainSec = Math.floor((remainMs % 60000) / 1000);
+    if (state.shiftComplete) {
+      waveEl.textContent = 'SHIFT COMPLETE';
     } else {
-      waveEl.textContent = '';
+      waveEl.textContent = `SHIFT -${String(remainMin).padStart(2, '0')}:${String(remainSec).padStart(2, '0')}`;
     }
   }
 }

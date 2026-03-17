@@ -1,10 +1,89 @@
-import { CITY_IMPACT_RADIUS, THREAT_TYPES, MISSILE_TYPES, PATROL_DETECT_RANGE, ARM_IMPACT_RANGE, ESCORT_PROTECT_RANGE } from './constants.js';
+import { CITY_IMPACT_RADIUS, THREAT_TYPES, MISSILE_TYPES, PATROL_DETECT_RANGE, ARM_IMPACT_RANGE, ESCORT_PROTECT_RANGE, REATTACK_COOLDOWN, TRACKING_AUTOFIRE_DELAY } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
 import { isInProsecutionZone } from './sector.js';
 import { createMissile, hasRadarTrack, getActiveAWACS, clearMission, getCurrentWeapon, totalWeapons, getActiveEscorts } from './entities.js';
 import { getEffectiveWCS } from './input.js';
 import { playMissileLaunch, playAlertKlaxon, playRadarDestroyed, playAwacsDown, playCityImpact, updateArmWarning, playRadioChatter } from './audio.js';
+
+// ── Manual fire — called from input.js when player right-clicks a tracked target ──
+export function fireWeapon(interceptor) {
+  if (interceptor.state !== 'TRACKING' || !interceptor.target) return false;
+  const contact = interceptor.target;
+  if (contact.state !== 'ACTIVE') return false;
+
+  // Reattack cooldown
+  if (state.gameTime < interceptor.reattackUntil) {
+    const remainSec = Math.ceil((interceptor.reattackUntil - state.gameTime) / 1000);
+    addLog(`${interceptor.id} REATTACK COOLDOWN — ${remainSec}s`, 'warn');
+    return false;
+  }
+
+  // Already have a missile in flight at this target
+  if (hasMissileInFlight(interceptor)) {
+    addLog(`${interceptor.id} MISSILE IN FLIGHT — WAIT FOR RESULT`, 'warn');
+    return false;
+  }
+
+  const weapon = getCurrentWeapon(interceptor);
+  if (!weapon) {
+    addLog(`${interceptor.id} NO WEAPONS`, 'warn');
+    return false;
+  }
+
+  // Radar cold check — can't fire radar-guided weapons cold
+  const mSpec = MISSILE_TYPES[weapon.type];
+  if (interceptor.radarCold && (mSpec.guidance === 'SARH' || mSpec.guidance === 'ACTIVE')) {
+    // Try secondary IR weapon instead
+    if (interceptor.secondaryWeapons > 0) {
+      const secType = interceptor.spec.secondaryWeaponType;
+      const secSpec = MISSILE_TYPES[secType];
+      if (secSpec && (secSpec.guidance === 'IR' || secSpec.guidance === 'UNGUIDED')) {
+        const d = dist(interceptor, contact);
+        if (d > interceptor.spec.secondaryWeaponsRange) {
+          addLog(`${interceptor.id} ${secType} OUT OF RANGE — ${Math.round(d)}NM`, 'warn');
+          return false;
+        }
+        const missile = createMissile(interceptor, contact, secType, interceptor.spec.secondaryWeaponsRange);
+        state.missiles.push(missile);
+        interceptor.secondaryWeapons--;
+        state.missilesExpended++;
+        playMissileLaunch(secType);
+        playRadioChatter();
+        addLog(`${interceptor.id} ${secSpec.callsign} — MISSILE AWAY ON ${contact.id}`, 'alert');
+        return true;
+      }
+    }
+    addLog(`${interceptor.id} RADAR COLD — CANNOT FIRE ${weapon.type}`, 'warn');
+    return false;
+  }
+
+  // Range check
+  const d = dist(interceptor, contact);
+  if (d > weapon.range) {
+    addLog(`${interceptor.id} ${weapon.type} OUT OF RANGE — ${Math.round(d)}NM`, 'warn');
+    return false;
+  }
+
+  // Radar track check (SARH/ACTIVE need target in radar cone)
+  if (!hasRadarTrack(interceptor, contact)) {
+    addLog(`${interceptor.id} NO RADAR TRACK — MANEUVER FOR LOCK`, 'warn');
+    return false;
+  }
+
+  const missile = createMissile(interceptor, contact, weapon.type, weapon.range);
+  state.missiles.push(missile);
+  if (weapon.isPrimary) {
+    interceptor.weapons--;
+  } else {
+    interceptor.secondaryWeapons--;
+  }
+  state.missilesExpended++;
+  playMissileLaunch(weapon.type);
+  playRadioChatter();
+  addLog(`${interceptor.id} ${mSpec.callsign} — MISSILE AWAY ON ${contact.id}`, 'alert');
+  return true;
+}
 
 function weaponSummary(interceptor) {
   const parts = [];
@@ -53,9 +132,10 @@ export function resolveEngagements() {
     }
   }
 
-  // ── Process interceptor missile launches ──
+  // ── Process interceptor state transitions (AIRBORNE → TRACKING) ──
   for (const interceptor of state.interceptors) {
-    if (interceptor.state !== 'AIRBORNE' || !interceptor.target) continue;
+    if (interceptor.state !== 'AIRBORNE' && interceptor.state !== 'TRACKING') continue;
+    if (!interceptor.target) continue;
 
     const contact = interceptor.target;
 
@@ -97,30 +177,33 @@ export function resolveEngagements() {
       }
     }
 
-    // Check range, radar track, and fire if no missile already in flight
-    const weapon = getCurrentWeapon(interceptor);
-    if (weapon && !hasMissileInFlight(interceptor) && hasRadarTrack(interceptor, contact)) {
-      const d = dist(interceptor, contact);
-      if (d <= weapon.range) {
-        const mSpec = MISSILE_TYPES[weapon.type];
-        const missile = createMissile(interceptor, contact, weapon.type, weapon.range);
-        state.missiles.push(missile);
-        if (weapon.isPrimary) {
-          interceptor.weapons--;
-        } else {
-          interceptor.secondaryWeapons--;
+    // AIRBORNE → TRACKING transition: enter tracking when in weapons range
+    if (interceptor.state === 'AIRBORNE') {
+      const weapon = getCurrentWeapon(interceptor);
+      if (weapon) {
+        const d = dist(interceptor, contact);
+        if (d <= weapon.range) {
+          interceptor.state = 'TRACKING';
+          interceptor.trackingSince = state.gameTime;
+          addLog(`${interceptor.id} TRACKING ${contact.id}`, 'warn');
         }
-        state.missilesExpended++;
-        playMissileLaunch(weapon.type);
-        playRadioChatter();
-        addLog(`${interceptor.id} ${mSpec.callsign} — MISSILE AWAY ON ${contact.id}`, 'alert');
+      }
+    }
+
+    // Auto-fire after brief TRACKING delay
+    if (interceptor.state === 'TRACKING' && interceptor.trackingSince) {
+      if (state.gameTime - interceptor.trackingSince >= TRACKING_AUTOFIRE_DELAY) {
+        if (!hasMissileInFlight(interceptor) && state.gameTime >= interceptor.reattackUntil) {
+          fireWeapon(interceptor);
+        }
       }
     }
   }
 
   // ── Process missile resolution effects on interceptors ──
   for (const interceptor of state.interceptors) {
-    if (interceptor.state !== 'AIRBORNE' || !interceptor.target) continue;
+    if (interceptor.state !== 'AIRBORNE' && interceptor.state !== 'TRACKING') continue;
+    if (!interceptor.target) continue;
 
     const contact = interceptor.target;
 
@@ -149,7 +232,6 @@ export function resolveEngagements() {
       interceptor.state = 'RTB';
       addLog(`${interceptor.id} WINCHESTER — NO WEAPONS — RTB`, 'warn');
     }
-    // Otherwise: target still active, interceptor keeps pursuing and will re-fire when in range
   }
 
   // ── ARM warning beeps + impacts on radar sites ──
@@ -340,11 +422,11 @@ export function checkWinLose() {
 
   const activeThreats = state.contacts.filter(t => t.state === 'ACTIVE' && !t.isCivilian);
 
-  if (state.wavesComplete && activeThreats.length === 0) {
+  if (state.shiftComplete && activeThreats.length === 0) {
     const livingCities = state.cities.filter(c => c.hp > 0);
     if (livingCities.length > 0) {
       state.status = 'WON';
-      addLog('ALL WAVES NEUTRALIZED — SECTOR CLEAR', 'alert');
+      addLog('SHIFT COMPLETE — SECTOR SECURE', 'alert');
       addLog(`CITIES PRESERVED: ${livingCities.length}/${state.cities.length}`, '');
     } else {
       state.status = 'LOST';

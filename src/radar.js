@@ -11,8 +11,7 @@ import { addLog } from './hud.js';
 import { getActiveAWACS, getClassCategory, hasDataLink, isInRadarCone } from './entities.js';
 import { toCanvas, nmToPixels, SECTOR } from './sector.js';
 import { ktsToMph } from './units.js';
-import { WAVES } from '../data/scenarios.js';
-import { playSweepTick, playDetectionPing, playWaveIncoming } from './audio.js';
+import { playSweepTick, playDetectionPing } from './audio.js';
 
 // ═══════════════════════════════════════════
 // RANGE RINGS
@@ -410,19 +409,13 @@ export function drawContacts(ctx, sweepTime) {
     if (contact.state === 'NEUTRALIZED' || contact.state === 'IMPACT') continue;
 
     const alpha = updateBlipVisibility(contact, sweepTime);
+    contact._blipAlpha = alpha;
     if (alpha <= 0) continue;
 
     // First detection
     if (!contact.detected) {
       contact.detected = true;
       contact.sweepsSeen = 1;
-
-      // Announce wave on first hostile detection
-      if (!contact.isCivilian && !state.waveAnnounced && state.currentWave > 0) {
-        state.waveAnnounced = true;
-        addLog(`■ WAVE ${state.currentWave}/${WAVES.length} INCOMING ■`, 'alert');
-        playWaveIncoming();
-      }
 
       // Detection ping — pitch based on proximity to nearest city
       let minCityDist = 250;
@@ -857,7 +850,7 @@ export function drawMissions(ctx, sweepTime) {
 
 export function drawInterceptors(ctx, sweepTime) {
   for (const interceptor of state.interceptors) {
-    if (interceptor.state === 'READY' || interceptor.state === 'CRASHED' || interceptor.state === 'TURNAROUND' || interceptor.state === 'MAINTENANCE') continue;
+    if (['READY', 'CRASHED', 'TURNAROUND', 'MAINTENANCE', 'SCRAMBLING'].includes(interceptor.state)) continue;
 
     const [ix, iy] = toCanvas(interceptor.x, interceptor.y);
     const fuelPct = interceptor.fuel / interceptor.fuelMax;
@@ -949,7 +942,7 @@ export function drawInterceptors(ctx, sweepTime) {
 
       // Radar cone (fighters only)
       const radarSpec = interceptor.spec;
-      if (radarSpec.radarRange && radarSpec.radarCone && !isAWACS && !isTanker) {
+      if (radarSpec.radarRange && radarSpec.radarCone && !isAWACS && !isTanker && !interceptor.radarCold) {
         const pxPerNm = nmToPixels();
         const radarR = radarSpec.radarRange * pxPerNm;
         // Convert nm heading to canvas angle (Y is flipped)

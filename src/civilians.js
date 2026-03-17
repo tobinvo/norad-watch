@@ -11,23 +11,23 @@ const ext = SECTOR.extentX;
 const extY = SECTOR.extentY;
 const margin = 30;
 
-// Air corridors — entry/exit pairs
+// Air corridors — entry/exit pairs (Alaska)
 const CORRIDORS = [
-  // Transatlantic arrivals (east → west)
-  { entry: () => ({ x: ext + margin, y: rand(-extY * 0.5, extY * 0.5) }),
-    exit:  () => ({ x: -ext - margin, y: rand(-extY * 0.3, extY * 0.3) }) },
-  // Transatlantic departures (west → east)
-  { entry: () => ({ x: -ext - margin, y: rand(-extY * 0.3, extY * 0.3) }),
-    exit:  () => ({ x: ext + margin, y: rand(-extY * 0.5, extY * 0.5) }) },
-  // North-south (Canada → DC corridor)
-  { entry: () => ({ x: rand(-ext * 0.5, 0), y: extY + margin }),
-    exit:  () => ({ x: rand(-ext * 0.6, -ext * 0.2), y: -extY - margin }) },
-  // South-north (DC corridor → Canada)
-  { entry: () => ({ x: rand(-ext * 0.6, -ext * 0.2), y: -extY - margin }),
-    exit:  () => ({ x: rand(-ext * 0.5, 0), y: extY + margin }) },
-  // Northeast coastal (Maine → south)
-  { entry: () => ({ x: rand(0, ext * 0.3), y: extY + margin }),
-    exit:  () => ({ x: rand(-ext * 0.5, -ext * 0.2), y: -extY - margin }) },
+  // Transpolar route (Asia → Anchorage/Fairbanks via north)
+  { entry: () => ({ x: rand(-ext * 0.3, ext * 0.3), y: extY + margin }),
+    exit:  () => ({ x: rand(ext * 0.4, ext * 0.8), y: rand(-extY * 0.5, extY * 0.5) }) },
+  // Return — Fairbanks/Anchorage → Asia via north
+  { entry: () => ({ x: rand(ext * 0.4, ext * 0.8), y: rand(-extY * 0.3, extY * 0.3) }),
+    exit:  () => ({ x: rand(-ext * 0.3, ext * 0.3), y: extY + margin }) },
+  // Great circle Pacific (east → west through sector)
+  { entry: () => ({ x: ext + margin, y: rand(-extY * 0.4, extY * 0.2) }),
+    exit:  () => ({ x: -ext - margin, y: rand(-extY * 0.2, extY * 0.4) }) },
+  // Great circle Pacific return
+  { entry: () => ({ x: -ext - margin, y: rand(-extY * 0.2, extY * 0.4) }),
+    exit:  () => ({ x: ext + margin, y: rand(-extY * 0.4, extY * 0.2) }) },
+  // Bush plane traffic (short hops, stays interior)
+  { entry: () => ({ x: rand(-ext * 0.3, ext * 0.5), y: extY + margin }),
+    exit:  () => ({ x: rand(-ext * 0.3, ext * 0.5), y: -extY - margin }) },
 ];
 
 function rand(min, max) {

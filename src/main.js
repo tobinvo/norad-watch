@@ -54,12 +54,12 @@ function initGame() {
 
   initRadarSweeps();
 
-  addLog('NORAD WATCH STATION ONLINE — NORTHEAST ADIZ', '');
-  addLog(`${state.radarSites.length} RADAR SITES ACTIVE — COVERAGE NORMAL`, '');
+  addLog('NORAD WATCH STATION ONLINE — ALASKA ADIZ WESTERN SECTOR', '');
+  addLog(`${state.radarSites.length} RADAR SITES ACTIVE — BERING SEA COVERAGE NORMAL`, '');
   addLog('CIVILIAN AIR TRAFFIC IN SECTOR — IFF ACTIVE', '');
   addLog('LEFT-CLICK SELECT | RIGHT-CLICK ACTION | SPACE PAUSE', '');
-  addLog('H = MARK HOSTILE | F = MARK FRIENDLY | M = DEFINE PATROL', '');
-  addLog('SHIFT+R-CLICK = ADD WAYPOINT | E = EMCON', '');
+  addLog('H = MARK HOSTILE | F = MARK FRIENDLY | G = RADAR HOT/COLD', '');
+  addLog('M = DEFINE PATROL | SHIFT+R-CLICK = WAYPOINT | E = EMCON', '');
 }
 
 function resetGame() {
@@ -76,11 +76,8 @@ function resetGame() {
   state.missiles = [];
   state.lastSpawnTime = 0;
   state.totalSpawned = 0;
-  state.currentWave = 0;
-  state.waveSpawnIndex = 0;
-  state.waveActive = false;
-  state.waveBreakUntil = 0;
-  state.wavesComplete = false;
+  state.incidentsSpawned = [];
+  state.shiftComplete = false;
   state.lastCivilianSpawn = 0;
   state.defcon = 5;
   state.score = 0;
@@ -110,7 +107,6 @@ function resetGame() {
   state.missionDefineBase = null;
   state.missionDefineWaypoints = [];
   state.nextFormationNum = 1;
-  state.waveFormationsSpawned = false;
   scoreShown = false;
   sweepTime = 0;
   resetView();
@@ -144,7 +140,6 @@ function update(gameDt, timestamp) {
   }
 
   // Track pre-update state for auto-pause detection
-  const prevWave = state.currentWave;
   const contactCountBefore = state.contacts.filter(c => c.detected).length;
 
   // Spawn threats and civilians
@@ -229,14 +224,16 @@ function update(gameDt, timestamp) {
   }
 
   const prevCitiesHit = state.citiesHit;
+  const prevTracking = state.interceptors.filter(i => i.state === 'TRACKING').length;
   resolveEngagements();
+
+  // Auto-pause: interceptor entered TRACKING (fire decision point)
+  const newTracking = state.interceptors.filter(i => i.state === 'TRACKING').length;
+  if (newTracking > prevTracking) {
+    autoPause('TRACKING — AWAITING FIRE ORDER', timestamp);
+  }
   updateDefcon();
   checkWinLose();
-
-  // Auto-pause: new wave
-  if (state.currentWave > prevWave && state.currentWave > 1) {
-    autoPause('NEW WAVE INCOMING', timestamp);
-  }
 
   // Auto-pause: new non-civilian contact detected
   const newDetected = state.contacts.filter(c => c.detected && !c.isCivilian).length;
