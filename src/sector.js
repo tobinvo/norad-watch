@@ -27,7 +27,7 @@ export const SECTOR = {
   bases: [
     { name: 'OTIS ANGB', x: 25, y: 55, roster: ['F-106A', 'F-106A', 'F-16C', 'F-16C', 'KC-135'] },
     { name: 'GRIFFISS AFB', x: -150, y: 120, roster: ['F-16C', 'F-16C', 'E-3A'] },
-    { name: 'LANGLEY AFB', x: -110, y: -190, roster: ['F-15A', 'F-15A', 'F-15A', 'F-106A', 'KC-135'] },
+    { name: 'LANGLEY AFB', x: -110, y: -190, roster: ['F-15A', 'F-15A', 'F-15A', 'F-106A', 'E-3A', 'KC-135'] },
   ],
 
   // Cities to defend

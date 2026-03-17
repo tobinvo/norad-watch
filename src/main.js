@@ -10,6 +10,7 @@ import { resolveEngagements, checkWinLose, updatePatrolEngagement } from './inte
 import { renderLog, renderContacts, renderAssets, renderStatusBar, renderSelectionDetail, addLog, showScoringOverlay, initHud } from './hud.js';
 import { initInput } from './input.js';
 import { updateDefcon, calculateFinalScore } from './scoring.js';
+import { initAudio, resumeAudio, startAmbient, updateAmbient, stopAmbient, playMiss, playRadioChatter } from './audio.js';
 
 let canvas, ctx;
 let scoreShown = false;
@@ -113,6 +114,7 @@ function resetGame() {
   scoreShown = false;
   sweepTime = 0;
   resetView();
+  startAmbient();
 
   document.getElementById('eventLog').innerHTML = '';
   const overlay = document.getElementById('scoringOverlay');
@@ -134,6 +136,7 @@ function update(gameDt, timestamp) {
   if (state.status !== 'ACTIVE') {
     if (!scoreShown) {
       scoreShown = true;
+      stopAmbient();
       const scoreData = calculateFinalScore();
       showScoringOverlay(scoreData);
     }
@@ -163,11 +166,13 @@ function update(gameDt, timestamp) {
     moveInterceptor(interceptor, dSec);
 
     if (!wasBingo && interceptor.bingo && interceptor.state === 'RTB') {
+      playRadioChatter();
       addLog(`${interceptor.id} BINGO FUEL — RTB AUTHORIZED`, 'warn');
       autoPause('BINGO FUEL', timestamp);
     }
 
     if (wasAlive && interceptor.state === 'CRASHED') {
+      playRadioChatter();
       addLog(`${interceptor.id} FUEL EXHAUSTION — AIRCRAFT LOST`, 'alert');
       autoPause('AIRCRAFT LOST', timestamp);
       if (interceptor.type === 'KC-135') {
@@ -177,6 +182,7 @@ function update(gameDt, timestamp) {
 
     // Bingo + diverting to tanker
     if (!wasBingo && interceptor.bingo && interceptor.state === 'REFUELING') {
+      playRadioChatter();
       addLog(`${interceptor.id} BINGO FUEL — DIVERTING TO TANKER ${interceptor.refuelTanker?.id}`, 'warn');
       autoPause('BINGO FUEL', timestamp);
     }
@@ -213,6 +219,7 @@ function update(gameDt, timestamp) {
   });
   // Auto-pause on missile miss
   if (state.missilesMissed > prevMisses) {
+    playMiss();
     autoPause('MISSILE MISS', timestamp);
   }
 
@@ -255,6 +262,8 @@ function render(timestamp) {
     state.gameTime += gameDt;
     update(gameDt, timestamp);
   }
+
+  updateAmbient(state.timeMultiplier);
 
   const w = canvas.width / window.devicePixelRatio;
   const h = canvas.height / window.devicePixelRatio;
@@ -301,6 +310,17 @@ window.addEventListener('load', () => {
   initHud();
   initGame();
   requestAnimationFrame(render);
+
+  // Audio init on first user gesture (browser autoplay policy)
+  const startAudioOnGesture = () => {
+    initAudio();
+    resumeAudio();
+    startAmbient();
+    window.removeEventListener('click', startAudioOnGesture);
+    window.removeEventListener('keydown', startAudioOnGesture);
+  };
+  window.addEventListener('click', startAudioOnGesture);
+  window.addEventListener('keydown', startAudioOnGesture);
 });
 
 window.addEventListener('resize', resizeCanvas);

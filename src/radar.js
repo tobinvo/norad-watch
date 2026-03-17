@@ -12,6 +12,7 @@ import { getActiveAWACS, getClassCategory, hasDataLink, isInRadarCone } from './
 import { toCanvas, nmToPixels, SECTOR } from './sector.js';
 import { ktsToMph } from './units.js';
 import { WAVES } from '../data/scenarios.js';
+import { playSweepTick, playDetectionPing, playWaveIncoming } from './audio.js';
 
 // ═══════════════════════════════════════════
 // RANGE RINGS
@@ -117,8 +118,14 @@ export function drawSweep(ctx, gameTime, sweepTime) {
   const emconMult = EMCON_RANGE_MULT[state.emcon] || 1.0;
 
   for (const site of state.radarSites) {
+    const prevAngle = site.sweepAngle || 0;
     const adjustedTime = sweepTime + (site.sweepOffset || 0);
     site.sweepAngle = ((adjustedTime % SWEEP_PERIOD) / SWEEP_PERIOD) * Math.PI * 2;
+
+    // Sweep tick — detect when angle wraps past 12 o'clock (0/2π)
+    if (prevAngle > Math.PI && site.sweepAngle < Math.PI && !site.destroyed && emconMult > 0) {
+      playSweepTick();
+    }
 
     if (emconMult <= 0 || site.destroyed) continue; // SILENT or destroyed — no sweep
 
@@ -289,9 +296,13 @@ function updateBlipVisibility(contact, sweepTime) {
   for (const interceptor of state.interceptors) {
     if (!['AIRBORNE', 'CAP', 'ID_MISSION', 'REFUELING'].includes(interceptor.state)) continue;
     if (isInRadarCone(interceptor, contact)) {
-      // Only add to shared picture if data-linked or if this fighter is selected
       if (hasDataLink(interceptor) || state.selectedInterceptor === interceptor) {
+        // Full visibility when data-linked or selected
         maxAlpha = Math.max(maxAlpha, 0.7);
+        if (!contact.detected) freshSweep = true;
+      } else {
+        // Unlinked fighter still contributes dim blip — player should see what their assets detect
+        maxAlpha = Math.max(maxAlpha, 0.35);
         if (!contact.detected) freshSweep = true;
       }
       // Track best radar classify rate among fighters with this contact in cone
@@ -410,7 +421,20 @@ export function drawContacts(ctx, sweepTime) {
       if (!contact.isCivilian && !state.waveAnnounced && state.currentWave > 0) {
         state.waveAnnounced = true;
         addLog(`■ WAVE ${state.currentWave}/${WAVES.length} INCOMING ■`, 'alert');
+        playWaveIncoming();
       }
+
+      // Detection ping — pitch based on proximity to nearest city
+      let minCityDist = 250;
+      for (const city of state.cities) {
+        if (city.hp <= 0) continue;
+        const dx = contact.x - city.x;
+        const dy = contact.y - city.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < minCityDist) minCityDist = d;
+      }
+      const proximity = Math.max(0, Math.min(1, 1 - minCityDist / 250));
+      playDetectionPing(proximity);
 
       addLog(`NEW CONTACT ${contact.id} — HDG ${contact.hdgDeg} SPD ${ktsToMph(contact.speed)} ALT ${contact.altitude}`, 'warn');
 

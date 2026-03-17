@@ -4,6 +4,7 @@ import { addLog } from './hud.js';
 import { isInProsecutionZone } from './sector.js';
 import { createMissile, hasRadarTrack, getActiveAWACS, clearMission, getCurrentWeapon, totalWeapons, getActiveEscorts } from './entities.js';
 import { getEffectiveWCS } from './input.js';
+import { playMissileLaunch, playAlertKlaxon, playRadarDestroyed, playAwacsDown, playCityImpact, updateArmWarning, playRadioChatter } from './audio.js';
 
 function weaponSummary(interceptor) {
   const parts = [];
@@ -110,6 +111,8 @@ export function resolveEngagements() {
           interceptor.secondaryWeapons--;
         }
         state.missilesExpended++;
+        playMissileLaunch(weapon.type);
+        playRadioChatter();
         addLog(`${interceptor.id} ${mSpec.callsign} — MISSILE AWAY ON ${contact.id}`, 'alert');
       }
     }
@@ -149,7 +152,28 @@ export function resolveEngagements() {
     // Otherwise: target still active, interceptor keeps pursuing and will re-fire when in range
   }
 
-  // ── Check ARM impacts on radar sites ──
+  // ── ARM warning beeps + impacts on radar sites ──
+  // First pass: update warning beeps for all active ARMs
+  for (const contact of state.contacts) {
+    if (contact.type !== 'ARM' || !contact.targetSite) {
+      updateArmWarning(contact.id, 0, false);
+      continue;
+    }
+    if (contact.state !== 'ACTIVE') {
+      updateArmWarning(contact.id, 0, false);
+      continue;
+    }
+    let minDist = Infinity;
+    for (const site of state.radarSites) {
+      if (site.destroyed) continue;
+      const dx = contact.x - site.x;
+      const dy = contact.y - site.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < minDist) minDist = d;
+    }
+    updateArmWarning(contact.id, minDist, minDist < 50);
+  }
+  // Second pass: check actual impacts
   for (const contact of state.contacts) {
     if (contact.state !== 'ACTIVE' || contact.type !== 'ARM' || !contact.targetSite) continue;
     for (const site of state.radarSites) {
@@ -165,6 +189,8 @@ export function resolveEngagements() {
         site.destroyed = true;
         state.threatsNeutralized++;
 
+        playRadarDestroyed();
+        updateArmWarning(contact.id, 0, false);
         addLog(`■ ${contact.id} ARM IMPACT — ${site.name} DESTROYED ■`, 'alert');
         addLog(`■ RADAR COVERAGE DEGRADED ■`, 'alert');
         state.effects.push({ x: site.x, y: site.y, type: 'impact', startTime: state.gameTime });
@@ -195,6 +221,7 @@ export function resolveEngagements() {
         clearMission(awacs);
         state.threatsNeutralized++; // attacker is spent
 
+        playAwacsDown();
         addLog(`■ ${contact.id} ATTACKED ${awacs.id} — AWACS DOWN ■`, 'alert');
         addLog(`■ DATA LINK COVERAGE DEGRADED ■`, 'alert');
         state.effects.push({ x: awacs.x, y: awacs.y, type: 'impact', startTime: state.gameTime });
@@ -222,6 +249,7 @@ export function resolveEngagements() {
         contact.allegiance = 'HOSTILE';
         const typeLabel = THREAT_TYPES[contact.type]?.label || contact.type;
         contact.classCategory = typeLabel;
+        playCityImpact();
         addLog(`${contact.id} ${typeLabel} IMPACT — ${contact.targetCity.name} HIT`, 'alert');
         state.effects.push({ x: contact.targetCity.x, y: contact.targetCity.y, type: 'impact', startTime: state.gameTime });
 

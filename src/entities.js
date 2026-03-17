@@ -5,6 +5,7 @@ import { AIRCRAFT_TYPES, THREAT_TYPES, ARRIVAL_THRESHOLD, ID_RANGE, ID_TIME, CIV
   ESCORT_OFFSET_DISTANCE, ESCORT_COHESION_RANGE } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
+import { playSplash, playNuclearDetonation, playDamageHit } from './audio.js';
 
 // ═══════════════════════════════════════════
 // CITY
@@ -714,12 +715,18 @@ export function moveInterceptor(interceptor, dSec) {
         interceptor.turnaroundUntil = state.gameTime + interceptor.spec.turnaroundTime * 1000;
         addLog(`${interceptor.id} LANDED — TURNAROUND ${Math.round(interceptor.spec.turnaroundTime / 60)}min`, '');
       }
+      return;
     }
-    // Orbiting at a point — rotate radar heading
-    if (interceptor.state === 'CAP') {
-      interceptor.heading = (interceptor.heading || 0) + FIGHTER_ORBIT_RATE * dSec;
+    // AIRBORNE with target — keep pursuing, don't stop at intercept point
+    if (interceptor.state === 'AIRBORNE' && interceptor.target) {
+      // Recalculate — target is moving, keep closing
+    } else {
+      // Orbiting at a point — rotate radar heading
+      if (interceptor.state === 'CAP') {
+        interceptor.heading = (interceptor.heading || 0) + FIGHTER_ORBIT_RATE * dSec;
+      }
+      return;
     }
-    return;
   }
 
   // Update heading from movement direction
@@ -1015,6 +1022,12 @@ function resolveMissileArrival(missile) {
         addLog(`■ CATASTROPHIC ERROR — CIVILIAN SHOOTDOWN ■`, 'alert');
         state.effects.push({ x: contact.x, y: contact.y, type: 'impact', startTime: state.gameTime });
       } else {
+        // Nuclear detonation for Genie, standard splash for others
+        if (missile.type === 'GENIE') {
+          playNuclearDetonation();
+        } else {
+          playSplash();
+        }
         state.threatsNeutralized++;
         const threatSpec = THREAT_TYPES[contact.type];
         const dmgLabel = contact.damaged ? ' (DAMAGED)' : '';
@@ -1027,6 +1040,7 @@ function resolveMissileArrival(missile) {
       missile.resolveTime = state.gameTime;
       contact.damaged = true;
       contact.speed = Math.round(contact.speed * 0.5);
+      playDamageHit();
       const threatSpec = THREAT_TYPES[contact.type];
       addLog(`${missile.id} HIT — ${contact.id} DAMAGED (${threatSpec.label}) — SPEED REDUCED`, 'warn');
       state.effects.push({ x: contact.x, y: contact.y, type: 'damage', startTime: state.gameTime });

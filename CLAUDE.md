@@ -3,7 +3,7 @@
 A browser-based cold-war NORAD air defense simulation. The player manages radar contacts, scrambles interceptors, and defends North American cities against escalating waves of airborne threats. Prioritizes the "control tower" feel — managing information and making decisions, not clicking frantically.
 
 ## Project Status
-**Phase: 11C complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post. Phase 6 added IFF pipeline + civilian traffic. Phase 7 added WCS (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements. Phase 8 added time compression (1-16x), auto-pause on critical events, game clock. Phase 9A added turnaround time, sortie limits, fuel range envelopes. Phase 9B added missiles as map entities, Pk, damage model. Phase 9C added tanker support, patrol missions (define/assign/auto-loop), ad-hoc waypoints (shift+right-click), patrol auto-engagement.
+**Phase: 12A complete** — Phases 1-4 built arcade prototype on continent-wide map. Phase 5 transforms to single-sector command post. Phase 6 added IFF pipeline + civilian traffic. Phase 7 added WCS (FREE/TIGHT/HOLD), per-site radar sweeps, AWACS improvements. Phase 8 added time compression (1-16x), auto-pause on critical events, game clock. Phase 9A added turnaround time, sortie limits, fuel range envelopes. Phase 9B added missiles as map entities, Pk, damage model. Phase 9C added tanker support, patrol missions (define/assign/auto-loop), ad-hoc waypoints (shift+right-click), patrol auto-engagement. Phase 12A added procedural sound design (Web Audio API). Next: Phase 13 (Tactical Overhaul).
 
 ## Tech Stack
 - **Vanilla JavaScript** + **HTML5 Canvas** — no frameworks, no build step
@@ -170,39 +170,67 @@ norad-watch/
 - **Phase 11C:** Formation visuals ✓ — Dashed amber lines connect lead to escorts on radar. Contact list shows LDR/ESC tags. Detail panel shows formation ID, escort count, and "ENGAGE ESCORTS FIRST" warning.
 - **Phase 11C:** Balanced waves ✓ — Escort fighters come from wave budget (not added on top). Total threat count stays manageable: W1 (3), W2 (4), W3 (5+ARM), W4 (6+ARM), W5 (6+ARM). Formation difficulty replaces raw volume.
 
-### Phase 12A: Sound Design
+### Phase 12A: Sound Design ✓
 **Goal:** Biggest atmosphere impact. All procedural via Web Audio API — no external files.
 
-1. **Radar sweep tick** — subtle click/ping each time sweep passes 12 o'clock, anchors the rhythm
-2. **Detection ping** — sharp tone when a new contact first appears (higher pitch = closer to cities)
-3. **Alert klaxon** — escalating two-tone alarm on THREAT classification or city impact imminent
-4. **Missile launch** — radio call "FOX THREE" / "FOX ONE — GENIE" (synth speech or tone burst) on player missile fire
-5. **Splash / miss** — confirmation tone on kill, flat buzz on miss
-6. **Engagement warning** — rapid beeping when ARM is inbound on a radar site
-7. **EMCON shift** — distinct tone for each level change (click up for SILENT, click down for ACTIVE)
-8. **Ambient hum** — low continuous tone (CRT/equipment room ambiance), volume tied to time compression
-9. **Radio chatter fragments** — short procedural noise bursts on scramble, RTB, bingo fuel — suggests a busy freq
-10. **Nuclear detonation** — deep rumble + white noise burst for Genie hits
-11. **Master volume + mute toggle** — M key mutes, volume slider in HUD
+- **Phase 12A:** Procedural audio engine ✓ — `src/audio.js` with Web Audio API synthesis. 17 sound functions.
+- **Phase 12A:** Radar sweep tick ✓ — click when sweep crosses 12 o'clock per site. Polyrhythmic pulse.
+- **Phase 12A:** Detection ping ✓ — pitch scales with proximity to nearest city (800-1400 Hz).
+- **Phase 12A:** Alert klaxon ✓ — two-tone siren on BALLISTIC designation, city impact, AWACS down.
+- **Phase 12A:** Missile launch tones ✓ — distinct tone burst per weapon type (AMRAAM chirp, GENIE low burst).
+- **Phase 12A:** Splash / miss ✓ — confirmation pip on kill, flat buzz on miss.
+- **Phase 12A:** ARM engagement warning ✓ — accelerating beeps as ARM closes on radar site.
+- **Phase 12A:** EMCON shift tones ✓ — distinct per state (ACTIVE/REDUCED/SILENT).
+- **Phase 12A:** Ambient hum ✓ — 60Hz + 120Hz harmonic, volume scales inversely with time compression.
+- **Phase 12A:** Radio chatter ✓ — filtered noise bursts on scramble, RTB, bingo fuel events.
+- **Phase 12A:** Nuclear detonation ✓ — deep rumble + white noise burst for Genie hits.
+- **Phase 12A:** Volume slider ✓ — range input in top status bar, CRT-styled.
 
-### Phase 12B: Difficulty & Replayability
-**Goal:** Accessible to new players, challenging for veterans
+### Phase 13: Tactical Overhaul (Next)
+**Goal:** Transform from dispatcher ("click target, wait") to tactical commander ("vector, assess, decide, act"). Most contacts are boundary probes that turn back. Real attacks are rare and terrifying. 3-4 player decisions per engagement.
 
-1. **Difficulty scaling** — Cadet (auto-ID, no civilians) → Veteran (full IFF pipeline, civilian traffic, SEAD threats)
-2. **Scenario variety** — Multiple sectors (Alaska, Northeast, Pacific), each with different geography, threat axes, and asset mix
+**Build incrementally — 5 steps, commit & test after each.**
 
-### Phase 12C: Deep Polish
-**Goal:** Complete experience
+#### Step 1: Roster & Scramble Delay
+- Expanded rosters (~18 fighters across 3 bases, up from ~9). 2 AWACS, 2 tankers.
+- `SCRAMBLING` state — aircraft take 15-45s real-time to get airborne (varies by type). Countdown in HUD.
+- Standing CAP as core gameplay — player establishes patrol coverage on game start.
 
-1. **Weather sectors** — Overlay zones degrading radar detection
-2. **Post-scenario debrief** — Timeline replay showing all contacts, your decisions, outcomes. "What you missed" reveal.
-3. **Communication delays** — Detection → authorization → scramble has a time cost. Not instant.
-4. **Crew proficiency** — Affects reaction times, ID speed, engagement accuracy
+#### Step 2: Engagement Model Rework
+- **No auto-fire** — interceptors reaching weapons range enter `TRACKING` state (follow target, maintain geometry, wait for player command)
+- **Manual fire** — right-click on tracked target to fire. Context-dependent: right-click = "engage" when not tracking, "fire" when tracking.
+- **Weapons hot/cold** — G key toggles interceptor radar on/off. Cold approach = stealthy but can't fire radar-guided weapons. IR weapons (Sidewinder, Falcon) fire cold.
+- **SARH guidance commitment** — after firing Sparrow, interceptor must maintain heading toward target. Turning away = missile goes blind.
+- **Reattack setup** — after miss, interceptor must reposition and re-establish track (no instant re-fire).
 
-### Deferred
+#### Step 3: Threat Behavior Overhaul
+- **Probe vs. attack intent** — each contact has hidden `intent: 'PROBE'` (~70-80%) or `'ATTACK'` (~20-30%). Player can't tell which until contact either turns back or doesn't.
+- **Probe turn-back** — probes fly toward ADIZ, turn away when interceptor closes within ~30nm. Gradual turn, visible on scope.
+- **Ingress waypoints** — threats spawn with 1-2 waypoints (approach from unexpected angles, not straight beeline to city).
+- **"This one isn't turning"** — the core tension moment. Conditioned by routine probes, player must recognize and react to real attacks.
+
+#### Step 4: Scenario Rebalance
+- **Shift-based spawning** — replace 5-wave structure with continuous "shift" (~45 min game-time). Contacts at irregular intervals.
+- **Incident types:** SOLO_PROBE, PAIR_PROBE, FORMATION_PROBE, SOLO_ATTACK, FORMATION_ATTACK
+- **~12-15 incidents** per shift, 2-3 are real attacks, rest are probes.
+- **Pacing:** Setup (no contacts) → routine probes → first real attack → tempo increases → final push while defenses stretched.
+- **Win/Lose:** Win = shift ends with cities standing. Lose = all cities destroyed.
+
+#### Step 5: Polish
+- Sound hooks for new events (probe turn-back, weapons hot, scramble siren)
+- HUD messaging for shift-based play
+- Tune probe turn-back behavior and pacing
+- Playtest and balance
+
+### Phase 14+: Future (Deferred)
+- **Difficulty scaling** — Cadet (auto-ID, no civilians) → Veteran (full IFF, civilians, SEAD)
+- **Scenario variety** — Multiple sectors (Alaska, Iceland-Faroes Gap, Korea), different geography/threats/assets
+- **Weather sectors** — Overlay zones degrading radar detection
+- **Post-scenario debrief** — Timeline replay showing all contacts, decisions, outcomes
+- **Pre-mission asset placement** — Budget to position radar sites, SAM batteries, bases
+- **Tighter sector / new location** — 100-150nm across, watch BVR engagements develop
 - **Terrain masking** — blocked until altitude is a real mechanic
-- **Terrain-hugging routes** — same dependency
-- **Altitude as full mechanic** — radar horizon, engagement envelopes, climb/descent time, fuel burn by altitude
+- **Altitude as full mechanic** — radar horizon, engagement envelopes, climb/descent time
 
 ### Phase Summary
 | Phase | Delivers | Feel |
@@ -219,9 +247,9 @@ norad-watch/
 | 11A   | Map zoom + pan | "Let me look closer" (done) |
 | 11B   | ECM jamming, SEAD/ARM | "They're fighting back smart" (done) |
 | 11C   | Formation tactics, coordinated strikes | "They're organized" (done) |
-| 12A   | Sound design | "I can hear the tension" |
-| 12B   | Difficulty scaling, scenario variety | "Play it again" |
-| 12C   | Weather, debrief, comms delays, crew proficiency | Complete experience |
+| 12A   | Sound design | "I can hear the tension" (done) |
+| 13    | Manual engagement, probe/attack AI, shift-based pacing | "Is this one real?" |
+| 14+   | Difficulty, new sectors, weather, debrief, asset placement | Full experience |
 
 ## Core Mechanics
 

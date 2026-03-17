@@ -154,6 +154,48 @@ body {
   text-shadow: 0 0 6px rgba(0, 255, 65, 0.3);
 }
 
+.volume-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+}
+
+.volume-label {
+  font-size: 9px;
+  color: var(--green-dim);
+  letter-spacing: 1px;
+}
+
+.volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 50px;
+  height: 3px;
+  background: var(--green-dim);
+  border-radius: 0;
+  outline: none;
+  cursor: pointer;
+}
+
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 8px;
+  height: 10px;
+  background: var(--green-mid);
+  border: none;
+  cursor: pointer;
+}
+
+.volume-slider::-moz-range-thumb {
+  width: 8px;
+  height: 10px;
+  background: var(--green-mid);
+  border: none;
+  cursor: pointer;
+}
+
 /* Panels */
 .panel {
   background: var(--bg-panel);

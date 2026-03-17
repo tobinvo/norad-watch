@@ -2,6 +2,8 @@ import { state } from './state.js';
 import { THREAT_TYPES, GAME_SPEED, CIVILIAN_KILL_PENALTY, AIRCRAFT_TYPES, DATA_LINK_RANGE, AWACS_DETECTION_RANGE } from './constants.js';
 import { WAVES } from '../data/scenarios.js';
 import { ktsToMph } from './units.js';
+import { playRadioChatter, playAlertKlaxon, getMasterVolume, setMasterVolume } from './audio.js';
+
 // Inline clearMission to avoid circular import with entities.js
 function clearMissionHud(interceptor) {
   if (interceptor.mission) {
@@ -22,6 +24,11 @@ export function addLog(text, cls) {
   const h = String(now.getUTCHours()).padStart(2, '0');
   const m = String(now.getUTCMinutes()).padStart(2, '0');
   state.logEntries.push({ text: `${h}${m}Z — ${text}`, cls: cls || '' });
+
+  // Sound triggers based on log content
+  if (text.includes('SCRAMBLE')) playRadioChatter();
+  else if (text.includes('RTB ORDERED')) playRadioChatter();
+  else if (text.includes('BALLISTIC') || text.includes('DEFENSE FAILURE')) playAlertKlaxon('critical');
 }
 
 export function renderLog() {
@@ -551,6 +558,14 @@ export function initHud() {
     addLog(`${interceptor.id} — RTB ORDERED`, '');
     state.selectedInterceptor = null;
   });
+
+  // Volume slider
+  const volumeSlider = document.getElementById('volumeSlider');
+  if (volumeSlider) {
+    volumeSlider.addEventListener('input', (e) => {
+      setMasterVolume(parseInt(e.target.value) / 100);
+    });
+  }
 
   // REFUEL button — divert to nearest on-station tanker
   detailEl.addEventListener('mousedown', (e) => {

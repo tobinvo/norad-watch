@@ -2,6 +2,7 @@ import { state } from './state.js';
 import { selectBase, selectThreat, selectInterceptor, addLog } from './hud.js';
 import { toCanvas, fromCanvas, getZoom, getPan, setPan, zoomAtPoint, resetView } from './sector.js';
 import { clearMission } from './entities.js';
+import { playEmconShift } from './audio.js';
 
 let canvasEl = null;
 
@@ -451,6 +452,7 @@ function handleKeyCommand(e) {
   if (e.code === 'KeyE') {
     const idx = EMCON_CYCLE.indexOf(state.emcon);
     state.emcon = EMCON_CYCLE[(idx + 1) % EMCON_CYCLE.length];
+    playEmconShift(state.emcon);
     const labels = { ACTIVE: 'FULL EMISSION', REDUCED: 'REDUCED EMISSION', SILENT: 'EMISSIONS SILENT' };
     addLog(`EMCON → ${state.emcon} — ${labels[state.emcon]}`, state.emcon === 'SILENT' ? 'alert' : 'warn');
     return;
