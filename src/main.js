@@ -3,11 +3,11 @@ import { state } from './state.js';
 import { SECTOR, toCanvas, updateCanvasSize, resetView, getZoom } from './sector.js';
 import { createBase, createCity, moveContact, moveInterceptor, moveMissile, updateTankerRefueling } from './entities.js';
 import { drawMap } from './map.js';
-import { drawRangeRings, drawRadarSites, drawSweep, drawContacts, drawInterceptors, drawMissiles, drawBases, drawCities, drawEffects, drawAwacsRange, initRadarSweeps, drawMissions, drawFormations } from './radar.js';
+import { drawRangeRings, drawRadarSites, drawSweep, drawContacts, drawInterceptors, drawMissiles, drawBases, drawCities, drawEffects, drawAwacsRange, initRadarSweeps, drawMissions, drawFormations, drawZones } from './radar.js';
 import { trySpawnThreat } from './spawner.js';
 import { initCivilianTraffic, trySpawnCivilian } from './civilians.js';
-import { resolveEngagements, checkWinLose, updatePatrolEngagement } from './intercept.js';
-import { renderLog, renderContacts, renderAssets, renderStatusBar, renderSelectionDetail, addLog, showScoringOverlay, initHud } from './hud.js';
+import { resolveEngagements, checkWinLose, updatePatrolEngagement, updatePatrolAutoID, checkPursuitLeash } from './intercept.js';
+import { renderLog, renderContacts, renderAssets, renderStatusBar, renderSelectionDetail, renderMissionPanel, addLog, showScoringOverlay, initHud } from './hud.js';
 import { initInput } from './input.js';
 import { updateDefcon, calculateFinalScore } from './scoring.js';
 import { initAudio, resumeAudio, startAmbient, updateAmbient, stopAmbient, playMiss, playRadioChatter } from './audio.js';
@@ -67,7 +67,7 @@ function initGame() {
   addLog(`DIFFICULTY: ${diff.label}`, '');
   addLog('LEFT-CLICK SELECT | RIGHT-CLICK ACTION | SPACE PAUSE', '');
   addLog('H = MARK HOSTILE | F = MARK FRIENDLY | G = RADAR HOT/COLD', '');
-  addLog('M = DEFINE PATROL | SHIFT+R-CLICK = WAYPOINT | E = EMCON', '');
+  addLog('M = NEW MISSION | Z = DEFINE ZONE | SHIFT+R-CLICK = WAYPOINT | E = EMCON', '');
 }
 
 function resetGame() {
@@ -117,8 +117,15 @@ function resetGame() {
   state.selectedMission = null;
   state.missionDefineMode = false;
   state.missionDefineBase = null;
+  state.missionDefineType = 'PATROL';
   state.missionDefineWaypoints = [];
+  state.missionTypeMenu = false;
   state.nextFormationNum = 1;
+  state.zones = [];
+  state.nextZoneNum = 0;
+  state.selectedZone = null;
+  state.zoneDefineMode = false;
+  state.zoneDefineVertices = [];
   scoreShown = false;
   sweepTime = 0;
   resetView();
@@ -235,6 +242,14 @@ function update(gameDt, timestamp) {
     autoPause('PATROL ENGAGING', timestamp);
   }
 
+  // Patrol auto-ID — CAP aircraft investigate nearby unknowns
+  if (updatePatrolAutoID()) {
+    autoPause('INVESTIGATING CONTACT', timestamp);
+  }
+
+  // Pursuit leash — break off retreating contacts beyond leash distance
+  checkPursuitLeash();
+
   const prevCitiesHit = state.citiesHit;
   const prevTracking = state.interceptors.filter(i => i.state === 'TRACKING').length;
   resolveEngagements();
@@ -285,6 +300,7 @@ function render(timestamp) {
   drawAwacsRange(ctx);
   drawBases(ctx);
   drawSweep(ctx, state.gameTime, sweepTime);
+  drawZones(ctx, sweepTime);
   drawMissions(ctx, sweepTime);
   drawFormations(ctx);
   drawContacts(ctx, sweepTime);
@@ -302,6 +318,7 @@ function render(timestamp) {
 
   renderContacts();
   renderAssets();
+  renderMissionPanel();
   renderSelectionDetail();
   renderLog();
   renderStatusBar();

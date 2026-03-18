@@ -5,6 +5,7 @@ import {
   TANKER_REFUEL_RANGE, DATA_LINK_RANGE,
   EMCON_RANGE_MULT, ESM_DETECT_RANGE, ESM_ALPHA,
   JAM_ALPHA_MULT, JAM_CLASSIFY_MULT, JAM_BURNTHROUGH, JAM_POSITION_JITTER,
+  MISSION_TYPES,
 } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
@@ -687,6 +688,125 @@ export function drawFormations(ctx) {
 // MISSIONS & WAYPOINTS
 // ═══════════════════════════════════════════
 
+// ═══════════════════════════════════════════
+// DEFENSE ZONES
+// ═══════════════════════════════════════════
+
+export function drawZones(ctx, sweepTime) {
+  // Draw zone define mode vertices (bright yellow, pulsing)
+  if (state.zoneDefineMode && state.zoneDefineVertices.length > 0) {
+    const verts = state.zoneDefineVertices;
+    const pulse = 0.6 + 0.4 * Math.sin(sweepTime / 300);
+    ctx.save();
+
+    // Fill preview polygon
+    if (verts.length >= 3) {
+      ctx.fillStyle = `rgba(255, 204, 0, ${0.06 * pulse})`;
+      ctx.beginPath();
+      const [fx, fy] = toCanvas(verts[0].x, verts[0].y);
+      ctx.moveTo(fx, fy);
+      for (let i = 1; i < verts.length; i++) {
+        const [vx, vy] = toCanvas(verts[i].x, verts[i].y);
+        ctx.lineTo(vx, vy);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Border lines
+    if (verts.length > 1) {
+      ctx.strokeStyle = `rgba(255, 204, 0, ${0.5 * pulse})`;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      const [fx, fy] = toCanvas(verts[0].x, verts[0].y);
+      ctx.moveTo(fx, fy);
+      for (let i = 1; i < verts.length; i++) {
+        const [vx, vy] = toCanvas(verts[i].x, verts[i].y);
+        ctx.lineTo(vx, vy);
+      }
+      ctx.lineTo(fx, fy); // close
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Vertex dots
+    for (let i = 0; i < verts.length; i++) {
+      const [vx, vy] = toCanvas(verts[i].x, verts[i].y);
+      ctx.fillStyle = `rgba(255, 204, 0, ${0.8 * pulse})`;
+      ctx.beginPath();
+      ctx.arc(vx, vy, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = '8px "Courier New", monospace';
+      ctx.fillStyle = `rgba(255, 204, 0, ${pulse})`;
+      ctx.fillText(`${i + 1}`, vx + 5, vy + 3);
+    }
+
+    ctx.restore();
+  }
+
+  // Draw existing zones
+  for (const zone of state.zones) {
+    if (zone.vertices.length < 3) continue;
+    const isSelected = state.selectedZone === zone;
+
+    ctx.save();
+
+    // Filled polygon
+    ctx.fillStyle = isSelected ? zone.color.replace('0.08', '0.15') : zone.color;
+    ctx.beginPath();
+    const [fx, fy] = toCanvas(zone.vertices[0].x, zone.vertices[0].y);
+    ctx.moveTo(fx, fy);
+    for (let i = 1; i < zone.vertices.length; i++) {
+      const [vx, vy] = toCanvas(zone.vertices[i].x, zone.vertices[i].y);
+      ctx.lineTo(vx, vy);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // Border
+    ctx.strokeStyle = isSelected ? zone.borderColor.replace('0.4', '0.7') : zone.borderColor;
+    ctx.lineWidth = isSelected ? 2 : 1;
+    ctx.beginPath();
+    ctx.moveTo(fx, fy);
+    for (let i = 1; i < zone.vertices.length; i++) {
+      const [vx, vy] = toCanvas(zone.vertices[i].x, zone.vertices[i].y);
+      ctx.lineTo(vx, vy);
+    }
+    ctx.closePath();
+    ctx.stroke();
+
+    // Name label at centroid
+    let cx = 0, cy = 0;
+    for (const v of zone.vertices) { cx += v.x; cy += v.y; }
+    cx /= zone.vertices.length;
+    cy /= zone.vertices.length;
+    const [lx, ly] = toCanvas(cx, cy);
+    ctx.font = '9px "Courier New", monospace';
+    ctx.fillStyle = isSelected ? zone.borderColor.replace('0.4', '0.9') : zone.borderColor;
+    ctx.textAlign = 'center';
+    ctx.fillText(zone.name, lx, ly - 4);
+
+    // Policy label
+    const policyColors = { FREE: '#ff4444', TIGHT: '#ffcc00', HOLD: '#00ff41' };
+    ctx.font = '7px "Courier New", monospace';
+    ctx.fillStyle = policyColors[zone.engagementPolicy] || '#ffcc00';
+    ctx.fillText(zone.engagementPolicy, lx, ly + 7);
+    ctx.textAlign = 'left';
+
+    // Assigned mission label
+    if (zone.assignedMission) {
+      ctx.font = '7px "Courier New", monospace';
+      ctx.fillStyle = zone.borderColor;
+      ctx.textAlign = 'center';
+      ctx.fillText(zone.assignedMission.name, lx, ly + 16);
+      ctx.textAlign = 'left';
+    }
+
+    ctx.restore();
+  }
+}
+
 export function drawMissions(ctx, sweepTime) {
   // Draw mission define mode waypoints (bright, pulsing)
   if (state.missionDefineMode && state.missionDefineWaypoints.length > 0) {
@@ -706,8 +826,11 @@ export function drawMissions(ctx, sweepTime) {
         const [wx, wy] = toCanvas(wps[i].x, wps[i].y);
         ctx.lineTo(wx, wy);
       }
-      // Show loop line back to start
-      ctx.lineTo(fx, fy);
+      // Show loop line back to start (PATROL only)
+      const defineType = MISSION_TYPES[state.missionDefineType];
+      if (defineType && defineType.loop) {
+        ctx.lineTo(fx, fy);
+      }
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -737,49 +860,129 @@ export function drawMissions(ctx, sweepTime) {
   if (state.selectedBase) {
     const baseMissions = state.missions.filter(m => m.base === state.selectedBase);
     for (const mission of baseMissions) {
-      if (mission.waypoints.length < 2) continue;
+      if (mission.waypoints.length < 1) continue;
       const isSelected = state.selectedMission === mission;
       const alpha = isSelected ? 0.5 : 0.2;
-      const color = isSelected ? '#00ff88' : '#00cc33';
+      const typeDef = MISSION_TYPES[mission.type];
+      const isLoop = typeDef && typeDef.loop;
+      const assigned = mission.assignedInterceptors || [];
+      const understaffed = assigned.length < (mission.maxSlots || 1);
+
+      // Color by mission type
+      let color;
+      if (mission.type === 'TANKER_ORBIT') color = isSelected ? '#cc88ff' : '#9966cc';
+      else if (mission.type === 'AWACS_ORBIT') color = isSelected ? '#88ccff' : '#6699cc';
+      else color = isSelected ? '#00ff88' : '#00cc33';
+
+      // Understaffed missions pulse amber
+      const pulseAlpha = understaffed ? (0.5 + 0.5 * Math.sin(sweepTime / 400)) : 1;
 
       ctx.save();
-      ctx.strokeStyle = `${color}`;
-      ctx.globalAlpha = alpha;
-      ctx.lineWidth = isSelected ? 1.5 : 1;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      const [fx, fy] = toCanvas(mission.waypoints[0].x, mission.waypoints[0].y);
-      ctx.moveTo(fx, fy);
-      for (let i = 1; i < mission.waypoints.length; i++) {
-        const [wx, wy] = toCanvas(mission.waypoints[i].x, mission.waypoints[i].y);
-        ctx.lineTo(wx, wy);
-      }
-      ctx.lineTo(fx, fy); // loop
-      ctx.stroke();
-      ctx.setLineDash([]);
 
-      // Waypoint diamonds
-      for (let i = 0; i < mission.waypoints.length; i++) {
-        const [wx, wy] = toCanvas(mission.waypoints[i].x, mission.waypoints[i].y);
-        const s = 4;
-        ctx.globalAlpha = alpha * 1.5;
+      if (mission.waypoints.length === 1) {
+        // Single-point types: orbit circle
+        const [px, py] = toCanvas(mission.waypoints[0].x, mission.waypoints[0].y);
+        const orbitR = nmToPixels() * 8; // 8nm orbit circle
+
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = alpha * pulseAlpha;
+        ctx.lineWidth = isSelected ? 1.5 : 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.arc(px, py, orbitR, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Center diamond
+        const s = 5;
+        ctx.globalAlpha = alpha * 1.5 * pulseAlpha;
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(wx, wy - s);
-        ctx.lineTo(wx + s, wy);
-        ctx.lineTo(wx, wy + s);
-        ctx.lineTo(wx - s, wy);
+        ctx.moveTo(px, py - s);
+        ctx.lineTo(px + s, py);
+        ctx.lineTo(px, py + s);
+        ctx.lineTo(px - s, py);
         ctx.closePath();
         ctx.fill();
+
+        // Label
+        ctx.globalAlpha = alpha * 2;
+        ctx.font = '7px "Courier New", monospace';
+        ctx.fillStyle = color;
+        ctx.fillText(mission.name, px + s + 2, py - s - 2);
+      } else {
+        // Multi-waypoint: route line
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = alpha * pulseAlpha;
+        ctx.lineWidth = isSelected ? 1.5 : 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        const [fx, fy] = toCanvas(mission.waypoints[0].x, mission.waypoints[0].y);
+        ctx.moveTo(fx, fy);
+        for (let i = 1; i < mission.waypoints.length; i++) {
+          const [wx, wy] = toCanvas(mission.waypoints[i].x, mission.waypoints[i].y);
+          ctx.lineTo(wx, wy);
+        }
+        if (isLoop) ctx.lineTo(fx, fy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Waypoint diamonds
+        for (let i = 0; i < mission.waypoints.length; i++) {
+          const [wx, wy] = toCanvas(mission.waypoints[i].x, mission.waypoints[i].y);
+          const s = 4;
+          ctx.globalAlpha = alpha * 1.5 * pulseAlpha;
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(wx, wy - s);
+          ctx.lineTo(wx + s, wy);
+          ctx.lineTo(wx, wy + s);
+          ctx.lineTo(wx - s, wy);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // Mission label at first waypoint
+        ctx.globalAlpha = alpha * 2;
+        ctx.font = '7px "Courier New", monospace';
+        ctx.fillStyle = color;
+        ctx.fillText(mission.name, toCanvas(mission.waypoints[0].x, mission.waypoints[0].y)[0] + 6, toCanvas(mission.waypoints[0].x, mission.waypoints[0].y)[1] - 6);
       }
 
-      // Mission label at first waypoint
-      ctx.globalAlpha = alpha * 2;
-      ctx.font = '7px "Courier New", monospace';
-      ctx.fillStyle = color;
-      ctx.fillText(mission.name, fx + 6, fy - 6);
-
       ctx.restore();
+
+      // Draw engagement range + pursuit leash for selected mission
+      if (isSelected && mission.engagementRange > 0) {
+        ctx.save();
+        const rangeR = nmToPixels() * mission.engagementRange;
+        ctx.strokeStyle = 'rgba(255, 100, 100, 0.2)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 4]);
+        // Draw range bubble around each waypoint
+        for (const wp of mission.waypoints) {
+          const [wx, wy] = toCanvas(wp.x, wp.y);
+          ctx.beginPath();
+          ctx.arc(wx, wy, rangeR, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+      if (isSelected && mission.pursuitLeash > 0) {
+        ctx.save();
+        const leashR = nmToPixels() * mission.pursuitLeash;
+        ctx.strokeStyle = 'rgba(255, 200, 0, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 6]);
+        for (const wp of mission.waypoints) {
+          const [wx, wy] = toCanvas(wp.x, wp.y);
+          ctx.beginPath();
+          ctx.arc(wx, wy, leashR, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
     }
   }
 
@@ -793,7 +996,8 @@ export function drawMissions(ctx, sweepTime) {
     if (i.mission && i.mission.waypoints.length > 0) {
       wps = i.mission.waypoints;
       currentIdx = i.missionLeg || 0;
-      loop = true;
+      const typeDef = MISSION_TYPES[i.mission.type];
+      loop = typeDef ? typeDef.loop : true;
     } else if (i.waypoints && i.waypoints.length > 0) {
       wps = i.waypoints;
       currentIdx = i.waypointIndex || 0;

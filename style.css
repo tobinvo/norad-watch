@@ -414,6 +414,105 @@ body {
 .fuel-low { color: var(--yellow-warn); }
 .fuel-critical { color: var(--red-alert); }
 
+/* Mission panel (right sidebar) */
+.mission-panel-header {
+  color: var(--green-bright);
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  padding: 6px 0 4px 0;
+  border-top: 1px solid var(--border-green);
+  border-bottom: 1px solid var(--border-green);
+  margin: 8px 0 4px 0;
+  text-shadow: 0 0 6px rgba(0, 255, 65, 0.3);
+}
+
+.mission-panel-toggle {
+  cursor: pointer;
+}
+
+.mission-panel-toggle:hover {
+  background: rgba(0, 255, 65, 0.06);
+}
+
+.mission-item {
+  padding: 4px 6px;
+  margin: 2px 0;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.mission-item:hover {
+  background: rgba(0, 255, 65, 0.06);
+  border-color: var(--green-dim);
+}
+
+.mission-item.mission-selected {
+  background: rgba(0, 255, 65, 0.12);
+  border-color: var(--green-bright);
+  box-shadow: 0 0 4px rgba(0, 255, 65, 0.15);
+}
+
+.mission-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.mission-name {
+  color: var(--green-bright);
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.mission-slots {
+  font-size: 10px;
+  color: var(--green-text);
+}
+
+.mission-slots.hostile { color: var(--red-alert); }
+.mission-slots.friendly { color: var(--green-bright); }
+
+.mission-item-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--green-mid);
+  padding-top: 1px;
+}
+
+.mission-item-crew {
+  font-size: 8px;
+  color: var(--green-text);
+  padding-top: 2px;
+}
+
+.crew-tag {
+  display: inline-block;
+  padding: 0 3px;
+  margin: 1px 2px 1px 0;
+  border: 1px solid var(--green-dim);
+  font-size: 8px;
+}
+
+.crew-remove {
+  color: var(--red-alert);
+  cursor: pointer;
+  font-size: 8px;
+  margin-left: 2px;
+}
+
+.crew-remove:hover {
+  text-shadow: 0 0 4px rgba(255, 68, 68, 0.6);
+}
+
+.doctrine-panel {
+  margin: 2px 0 4px 0;
+  padding: 2px 0;
+  border-top: 1px solid var(--green-dim);
+}
+
 /* Center canvas */
 .center-area {
   grid-area: center;

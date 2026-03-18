@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { THREAT_TYPES, GAME_SPEED, CIVILIAN_KILL_PENALTY, AIRCRAFT_TYPES, DATA_LINK_RANGE, AWACS_DETECTION_RANGE, SCRAMBLE_DELAY } from './constants.js';
+import { THREAT_TYPES, GAME_SPEED, CIVILIAN_KILL_PENALTY, AIRCRAFT_TYPES, DATA_LINK_RANGE, AWACS_DETECTION_RANGE, SCRAMBLE_DELAY, MISSION_TYPES } from './constants.js';
 import { SHIFT_DURATION } from '../data/scenarios.js';
 import { ktsToMph } from './units.js';
 import { playRadioChatter, playAlertKlaxon, getMasterVolume, setMasterVolume } from './audio.js';
@@ -7,12 +7,48 @@ import { playRadioChatter, playAlertKlaxon, getMasterVolume, setMasterVolume } f
 // Inline clearMission to avoid circular import with entities.js
 function clearMissionHud(interceptor) {
   if (interceptor.mission) {
-    interceptor.mission.assignedInterceptor = null;
+    const m = interceptor.mission;
+    m.assignedInterceptors = m.assignedInterceptors.filter(i => i !== interceptor);
     interceptor.mission = null;
   }
   interceptor.missionLeg = 0;
+  interceptor.missionDirection = 1;
   interceptor.waypoints = [];
   interceptor.waypointIndex = 0;
+}
+
+// ═══════════════════════════════════════════
+// DOCTRINE HELPERS
+// ═══════════════════════════════════════════
+
+function renderDoctrineRow(label, displayValue, field, colorMap) {
+  const colorClass = colorMap[displayValue] || '';
+  return `<div class="aircraft-row doctrine-row" data-doctrine-field="${field}" style="cursor: pointer; padding: 1px 4px"><span class="detail-label" style="font-size: 8px">${label}</span><span class="detail-value ${colorClass}" style="font-size: 8px">${displayValue}</span></div>`;
+}
+
+const DOCTRINE_CYCLES = {
+  weaponsDiscipline: ['CONSERVATIVE', 'STANDARD', 'WEAPONS_FREE'],
+  threatPriority: ['NEAREST', 'BY_TYPE', 'BY_CITY'],
+  engagementMode: ['CONSOLIDATED', 'SPLIT'],
+  emcon: ['HOT', 'COLD', 'AUTO'],
+  fuelPolicy: ['RTB_AT_BINGO', 'HOLD_UNTIL_RELIEVED'],
+  notification: ['AUTO_PAUSE', 'LOG_ONLY'],
+};
+
+export function cycleDoctrine(mission, field, direction) {
+  if (!mission) return;
+  if (field === 'pursuitLeash') {
+    mission.pursuitLeash = Math.max(0, mission.pursuitLeash + direction * 10);
+    return;
+  }
+  if (field === 'engagementRange') {
+    mission.engagementRange = Math.max(0, mission.engagementRange + direction * 10);
+    return;
+  }
+  const cycle = DOCTRINE_CYCLES[field];
+  if (!cycle) return;
+  const idx = cycle.indexOf(mission[field]);
+  mission[field] = cycle[(idx + 1) % cycle.length];
 }
 
 // ═══════════════════════════════════════════
@@ -185,14 +221,170 @@ export function renderAssets() {
       const refuelInfo = interceptor.state === 'REFUELING' ? ` TANK:${interceptor.refuelTanker?.id || '?'}` : '';
       const mslTag = state.missiles.some(m => m.shooter === interceptor && m.state === 'FLIGHT') ? ' MSL' : '';
       const isPatrol = interceptor.state === 'CAP' && interceptor.mission;
+      const hasMission = interceptor.mission || (interceptor.scrambleOrder && interceptor.scrambleOrder.mission);
+      const missionRef = interceptor.mission || interceptor.scrambleOrder?.mission;
       const stateLabel = interceptor.state === 'SCRAMBLING' ? 'SCRM' : interceptor.state === 'TRACKING' ? 'TRACK' : interceptor.state === 'ID_MISSION' ? 'ID' : interceptor.state === 'REFUELING' ? 'REFUEL' : isPatrol ? 'PATROL' : interceptor.state;
-      const missionInfo = isPatrol ? ` ${interceptor.mission.name}` : '';
+      const missionInfo = hasMission && missionRef ? ` ${missionRef.name}` : '';
       html += `<div class="asset-line">${interceptor.id} ${stateLabel}${missionInfo}${targetInfo}${idInfo}${capInfo}${refuelInfo}${mslTag} ${fuelBarHTML(interceptor)}</div>`;
     }
 
     block.innerHTML = html;
     container.appendChild(block);
   }
+}
+
+// ═══════════════════════════════════════════
+// MISSION PANEL (RIGHT SIDEBAR)
+// ═══════════════════════════════════════════
+
+let missionPanelOpen = false;
+
+export function renderMissionPanel() {
+  const el = document.getElementById('missionPanel');
+  if (!el) return;
+
+  const hasMissions = state.missions.length > 0;
+  const hasZones = state.zones.length > 0;
+  const isDefining = state.missionDefineMode || state.missionTypeMenu || state.zoneDefineMode;
+
+  // Auto-expand when there's content
+  if (hasMissions || hasZones || isDefining) missionPanelOpen = true;
+
+  // Always show header with toggle
+  const chevron = missionPanelOpen ? '▼' : '▶';
+  const countLabel = hasMissions || hasZones ? ` (${state.missions.length}M${hasZones ? ' ' + state.zones.length + 'Z' : ''})` : '';
+  let html = `<div class="mission-panel-header mission-panel-toggle">${chevron} MISSION PLANNING${countLabel}</div>`;
+
+  if (!missionPanelOpen) {
+    el.innerHTML = html;
+    return;
+  }
+
+  // Mission type picker (when defining)
+  if (state.missionTypeMenu && state.missionDefineBase) {
+    html += `<div style="color: #ffcc00; padding: 4px 0; font-size: 9px">NEW MISSION AT ${state.missionDefineBase.name}:</div>`;
+    const typeKeys = Object.keys(MISSION_TYPES);
+    for (let i = 0; i < typeKeys.length; i++) {
+      const td = MISSION_TYPES[typeKeys[i]];
+      html += `<div style="color: #ffcc00; font-size: 9px; padding: 1px 0">  ${i + 1}. ${td.label} (${td.description})</div>`;
+    }
+    html += `<div style="color: #555; font-size: 8px; padding: 2px 0">ESC = CANCEL</div>`;
+  }
+
+  // Mission define mode status
+  if (state.missionDefineMode && state.missionDefineBase) {
+    const typeDef = MISSION_TYPES[state.missionDefineType];
+    const wpCount = state.missionDefineWaypoints.length;
+    const canConfirm = wpCount >= typeDef.minWaypoints;
+    html += `<div style="color: #ffcc00; font-size: 9px; padding: 4px 0">DEFINING ${typeDef.label} AT ${state.missionDefineBase.name} — ${wpCount} WPS</div>`;
+    html += `<div style="color: #555; font-size: 8px">R-CLICK MAP TO PLACE WAYPOINTS</div>`;
+    html += `<div class="detail-actions" style="margin-top: 4px">`;
+    if (canConfirm) {
+      html += `<button class="confirm-mission-btn" style="background:transparent;color:var(--green-bright);border:1px solid var(--green-bright);font-family:'Courier New',monospace;font-size:10px;letter-spacing:2px;padding:3px 12px;cursor:pointer">CONFIRM (M)</button>`;
+    }
+    html += `<button class="cancel-mission-btn" style="background:transparent;color:var(--yellow-warn);border:1px solid var(--yellow-warn);font-family:'Courier New',monospace;font-size:10px;letter-spacing:2px;padding:3px 12px;cursor:pointer;margin-left:6px">CANCEL (ESC)</button>`;
+    html += `</div>`;
+  }
+
+  // All missions
+  if (hasMissions) {
+    for (const mission of state.missions) {
+      const isSelected = state.selectedMission === mission;
+      const selClass = isSelected ? ' mission-selected' : '';
+      const assigned = mission.assignedInterceptors || [];
+      const slots = mission.maxSlots || 1;
+      const slotLabel = `${assigned.length}/${slots}`;
+      const slotColor = assigned.length >= slots ? 'friendly' : assigned.length > 0 ? '' : 'hostile';
+      const typeLabel = MISSION_TYPES[mission.type]?.label || mission.type;
+
+      html += `<div class="mission-item${selClass}" data-mission-id="${mission.id}">`;
+      html += `<div class="mission-item-header">`;
+      html += `<span class="mission-name">${mission.name}</span>`;
+      html += `<span class="mission-slots ${slotColor}">${slotLabel}</span>`;
+      html += `</div>`;
+      html += `<div class="mission-item-info">`;
+      html += `<span class="mission-type">${typeLabel}</span>`;
+      html += `<span class="mission-base">${mission.base.name}</span>`;
+      html += `</div>`;
+      if (assigned.length > 0) {
+        html += `<div class="mission-item-crew">`;
+        for (const a of assigned) {
+          html += `<span class="crew-tag">${a.id} <span class="crew-remove" data-remove-id="${a.id}" data-remove-mission="${mission.id}">✕</span></span> `;
+        }
+        html += `</div>`;
+      }
+      html += `</div>`;
+
+      // Doctrine panel for selected mission
+      if (isSelected) {
+        html += `<div class="doctrine-panel">`;
+        html += renderDoctrineRow('WEAPONS', mission.weaponsDiscipline, 'weaponsDiscipline', { CONSERVATIVE: 'friendly', STANDARD: '', WEAPONS_FREE: 'hostile' });
+        html += renderDoctrineRow('PRIORITY', mission.threatPriority, 'threatPriority', { NEAREST: '', BY_TYPE: '', BY_CITY: '' });
+        html += renderDoctrineRow('ENGAGE', mission.engagementMode, 'engagementMode', { CONSOLIDATED: '', SPLIT: '' });
+        html += renderDoctrineRow('LEASH', mission.pursuitLeash > 0 ? `${mission.pursuitLeash}NM` : 'OFF', 'pursuitLeash', {});
+        html += renderDoctrineRow('RANGE', `${mission.engagementRange}NM`, 'engagementRange', {});
+        html += renderDoctrineRow('EMCON', mission.emcon, 'emcon', { HOT: 'hostile', COLD: 'friendly', AUTO: '' });
+        html += renderDoctrineRow('FUEL', mission.fuelPolicy === 'HOLD_UNTIL_RELIEVED' ? 'HOLD' : 'RTB', 'fuelPolicy', { RTB: '', HOLD: 'hostile' });
+        html += renderDoctrineRow('NOTIFY', mission.notification === 'AUTO_PAUSE' ? 'PAUSE' : 'LOG', 'notification', { PAUSE: '', LOG: '' });
+        html += `<div style="color: #555; font-size: 7px; padding: 2px 4px">CLICK ROW TO CYCLE | 1-8 KEYS | D = DELETE</div>`;
+        html += `</div>`;
+      }
+    }
+  }
+
+  // Zones section
+  if (hasZones || state.zoneDefineMode) {
+    html += `<div style="color: var(--green-mid); font-size: 9px; letter-spacing: 1px; padding: 4px 0 2px 0; border-top: 1px solid var(--border-green); margin-top: 4px">ZONES</div>`;
+  }
+
+  if (state.zoneDefineMode) {
+    html += `<div style="color: #ffcc00; font-size: 9px; padding: 4px 0">DEFINING ZONE — ${state.zoneDefineVertices.length} VERTICES</div>`;
+    html += `<div style="color: #555; font-size: 8px">R-CLICK = VERTEX | Z = CONFIRM | ESC = CANCEL</div>`;
+  }
+
+  for (const zone of state.zones) {
+    const isSelected = state.selectedZone === zone;
+    const selClass = isSelected ? ' mission-selected' : '';
+    const policyColors = { FREE: 'hostile', TIGHT: '', HOLD: 'friendly' };
+
+    html += `<div class="mission-item zone-item${selClass}" data-zone-id="${zone.id}">`;
+    html += `<div class="mission-item-header">`;
+    html += `<span class="mission-name">${zone.name}</span>`;
+    html += `<span class="mission-slots ${policyColors[zone.engagementPolicy] || ''}">${zone.engagementPolicy}</span>`;
+    html += `</div>`;
+    html += `<div class="mission-item-info">`;
+    html += `<span class="mission-type">${zone.assignedMission ? zone.assignedMission.name : 'UNASSIGNED'}</span>`;
+    html += `<span class="mission-base">${zone.vertices.length}V</span>`;
+    html += `</div>`;
+    html += `</div>`;
+
+    if (isSelected) {
+      const contactsInZone = state.contacts.filter(c => {
+        if (c.state !== 'ACTIVE' || !c.detected) return false;
+        let inside = false;
+        for (let i = 0, j = zone.vertices.length - 1; i < zone.vertices.length; j = i++) {
+          const xi = zone.vertices[i].x, yi = zone.vertices[i].y;
+          const xj = zone.vertices[j].x, yj = zone.vertices[j].y;
+          if (((yi > c.y) !== (yj > c.y)) && (c.x < (xj - xi) * (c.y - yi) / (yj - yi) + xi)) inside = !inside;
+        }
+        return inside;
+      });
+      if (contactsInZone.length > 0) {
+        const hostile = contactsInZone.filter(c => c.allegiance === 'HOSTILE').length;
+        const unknown = contactsInZone.filter(c => c.allegiance === 'UNKNOWN').length;
+        html += `<div style="color: #ff4444; font-size: 9px; padding: 2px 4px">${contactsInZone.length} CONTACTS (${hostile}H ${unknown}U)</div>`;
+      }
+      html += `<div style="color: #555; font-size: 7px; padding: 2px 4px">P = POLICY | B = BIND MISSION | D = DELETE</div>`;
+    }
+  }
+
+  // Hints when empty
+  if (!hasMissions && !hasZones && !isDefining) {
+    html += `<div style="color: #555; font-size: 9px; padding: 4px 0">SELECT BASE → M = NEW MISSION</div>`;
+    html += `<div style="color: #555; font-size: 9px; padding: 2px 0">Z = DEFINE ZONE</div>`;
+  }
+
+  el.innerHTML = html;
 }
 
 // ═══════════════════════════════════════════
@@ -302,6 +494,9 @@ export function renderSelectionDetail() {
       html += `<div class="detail-row"><span class="detail-label">STATUS</span><span class="detail-value" style="color: #ffcc00">WEAPONS FREE — AUTO-ENGAGE</span></div>`;
     }
     html += `<div class="detail-row"><span class="detail-label">FUEL</span><span class="detail-value ${fuelPct <= 25 ? 'hostile' : ''}">${fuelPct}%</span></div>`;
+    if (i.holdingPastBingo) {
+      html += `<div class="detail-row"><span class="detail-label">WARNING</span><span class="detail-value hostile">HOLDING PAST BINGO — CRASH RISK</span></div>`;
+    }
     let weaponStr = i.spec.weaponType ? `${i.weapons}x ${i.spec.weaponType}` : 'NONE';
     if (i.spec.secondaryWeaponType) weaponStr += ` + ${i.secondaryWeapons}x ${i.spec.secondaryWeaponType}`;
     html += `<div class="detail-row"><span class="detail-label">WEAPONS</span><span class="detail-value">${weaponStr}</span></div>`;
@@ -396,6 +591,16 @@ export function renderSelectionDetail() {
 
     let html = `<div class="detail-header">▶ ${b.name}</div>`;
 
+    // Show assignment mode banner when a mission is selected
+    const assignMission = state.selectedMission && state.selectedMission.base === b ? state.selectedMission : null;
+    if (assignMission) {
+      const slotsLeft = (assignMission.maxSlots || 1) - (assignMission.assignedInterceptors || []).length;
+      html += `<div style="background: rgba(0, 255, 65, 0.1); border: 1px solid var(--green-bright); padding: 4px 6px; margin-bottom: 4px; font-size: 9px">`;
+      html += `<div style="color: var(--green-bright); font-weight: bold">ASSIGNING → ${assignMission.name}</div>`;
+      html += `<div style="color: var(--green-mid)">${slotsLeft} SLOT${slotsLeft !== 1 ? 'S' : ''} OPEN — CLICK AIRCRAFT TO ASSIGN</div>`;
+      html += `</div>`;
+    }
+
     for (const i of ready) {
       const isSelected = state.selectedReadyInterceptor === i;
       const selClass = isSelected ? ' aircraft-selected' : '';
@@ -467,31 +672,14 @@ export function renderSelectionDetail() {
       html += `</div>`;
       html += `<div class="detail-assigned" style="color: var(--yellow-warn)">R-CLICK: HOSTILE=SCRAMBLE | UNKNOWN=ID | EMPTY=CAP</div>`;
     } else if (ready.length > 0) {
-      html += `<div class="detail-assigned" style="color: var(--yellow-warn)">SELECT AN AIRCRAFT ABOVE</div>`;
+      if (assignMission) {
+        html += `<div class="detail-assigned" style="color: var(--green-bright)">CLICK AIRCRAFT ABOVE TO ASSIGN TO ${assignMission.name}</div>`;
+      } else {
+        html += `<div class="detail-assigned" style="color: var(--yellow-warn)">SELECT AN AIRCRAFT ABOVE</div>`;
+      }
     }
 
-    // Missions section
-    const baseMissions = state.missions.filter(m => m.base === b);
-    if (baseMissions.length > 0 || !state.missionDefineMode) {
-      html += `<div class="detail-row" style="margin-top: 6px; border-top: 1px solid #003b0f; padding-top: 4px"><span class="detail-label" style="color: #00cc33">MISSIONS</span></div>`;
-    }
-    for (const mission of baseMissions) {
-      const isSelected = state.selectedMission === mission;
-      const selClass = isSelected ? ' aircraft-selected' : '';
-      const assignee = mission.assignedInterceptor;
-      const assignLabel = assignee ? `${assignee.id}` : 'UNASSIGNED';
-      const assignColor = assignee ? 'friendly' : '';
-      html += `<div class="aircraft-row mission-row${selClass}" data-mission-id="${mission.id}">`;
-      html += `<span class="detail-label">${mission.name}</span>`;
-      html += `<span class="detail-value">[${mission.waypoints.length}]</span>`;
-      html += `<span class="detail-value ${assignColor}">${assignLabel}</span>`;
-      html += `</div>`;
-    }
-    if (state.missionDefineMode && state.missionDefineBase === b) {
-      html += `<div class="detail-assigned" style="color: #ffcc00">DEFINING — ${state.missionDefineWaypoints.length} WPS — R-CLICK MAP | M=OK | ESC=CANCEL</div>`;
-    } else {
-      html += `<div class="detail-assigned" style="color: #555">M = DEFINE PATROL${state.selectedMission ? ' | D = DELETE' : ''}</div>`;
-    }
+    html += `<div class="detail-assigned" style="color: #555">M = NEW MISSION | SELECT MISSION IN PANEL → TO ASSIGN</div>`;
 
     el.innerHTML = html;
   } else {
@@ -517,51 +705,165 @@ export function initHud() {
     const id = row.dataset.interceptorId;
     if (!state.selectedBase) return;
     const interceptor = state.selectedBase.interceptors.find(i => i.id === id && i.state === 'READY');
-    if (interceptor) {
-      state.selectedReadyInterceptor = (state.selectedReadyInterceptor === interceptor) ? null : interceptor;
-    }
-  });
+    if (!interceptor) return;
 
-  // Mission row click — select mission or assign aircraft
-  panel.addEventListener('mousedown', (e) => {
-    const row = e.target.closest('.mission-row');
-    if (!row) return;
-    e.stopPropagation();
-    const missionId = row.dataset.missionId;
-    const mission = state.missions.find(m => m.id === missionId);
-    if (!mission) return;
-
-    // If aircraft is selected, assign to mission immediately
-    if (state.selectedReadyInterceptor && state.selectedBase === mission.base) {
-      const picked = state.selectedReadyInterceptor;
-      if (picked.state !== 'READY') return;
-
-      // Unassign previous interceptor if any
-      if (mission.assignedInterceptor) {
-        const prev = mission.assignedInterceptor;
-        if (prev.mission === mission) {
-          prev.mission = null;
-          prev.missionLeg = 0;
-        }
+    // If a mission is selected, clicking an aircraft assigns it directly
+    const mission = state.selectedMission;
+    if (mission && mission.base === interceptor.base) {
+      const typeDef = MISSION_TYPES[mission.type];
+      if (typeDef && typeDef.aircraftFilter && !typeDef.aircraftFilter.includes(interceptor.type)) {
+        addLog(`${mission.name} REQUIRES ${typeDef.aircraftFilter.join('/')}`, 'warn');
+        return;
       }
-
-      const delay = SCRAMBLE_DELAY[picked.type] || 600;
-      picked.state = 'SCRAMBLING';
-      picked.scrambleUntil = state.gameTime + delay * 1000;
-      picked.scrambleOrder = { type: 'PATROL', mission };
-      picked.x = picked.base.x;
-      picked.y = picked.base.y;
+      const assigned = mission.assignedInterceptors || [];
+      if (assigned.length >= (mission.maxSlots || 1)) {
+        addLog(`${mission.name} — ALL SLOTS FILLED`, 'warn');
+        state.selectedMission = null;
+        return;
+      }
+      const delay = SCRAMBLE_DELAY[interceptor.type] || 600;
+      interceptor.state = 'SCRAMBLING';
+      interceptor.scrambleUntil = state.gameTime + delay * 1000;
+      interceptor.scrambleOrder = { type: 'PATROL', mission };
+      interceptor.x = interceptor.base.x;
+      interceptor.y = interceptor.base.y;
       const delaySec = Math.round(delay / GAME_SPEED);
-      addLog(`${picked.id} SCRAMBLING — ${mission.name} — AIRBORNE IN ${delaySec}s`, 'alert');
-      state.selectedBase = null;
+      addLog(`${interceptor.id} → ${mission.name} — AIRBORNE IN ${delaySec}s`, 'alert');
       state.selectedReadyInterceptor = null;
-      state.selectedMission = null;
+      // Keep base + mission selected so player can keep clicking aircraft
       return;
     }
 
-    // Toggle mission selection
-    state.selectedMission = (state.selectedMission === mission) ? null : mission;
+    // Normal toggle selection
+    state.selectedReadyInterceptor = (state.selectedReadyInterceptor === interceptor) ? null : interceptor;
   });
+
+  // Mission panel (right side) — toggle, mission item click, doctrine click, zone click
+  const missionPanelEl = document.getElementById('missionPanel');
+  if (missionPanelEl) {
+    // Toggle expand/collapse
+    missionPanelEl.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.mission-panel-toggle')) {
+        e.stopPropagation();
+        missionPanelOpen = !missionPanelOpen;
+      }
+    });
+    // Mission item click — select mission or assign aircraft
+    missionPanelEl.addEventListener('mousedown', (e) => {
+      const row = e.target.closest('.mission-item:not(.zone-item)');
+      if (!row) return;
+      e.stopPropagation();
+      const missionId = row.dataset.missionId;
+      const mission = state.missions.find(m => m.id === missionId);
+      if (!mission) return;
+
+      // If aircraft is selected, assign to mission immediately
+      if (state.selectedReadyInterceptor && state.selectedBase === mission.base) {
+        const picked = state.selectedReadyInterceptor;
+        if (picked.state !== 'READY') return;
+
+        // Check aircraft type filter
+        const typeDef = MISSION_TYPES[mission.type];
+        if (typeDef && typeDef.aircraftFilter && !typeDef.aircraftFilter.includes(picked.type)) {
+          addLog(`${mission.name} REQUIRES ${typeDef.aircraftFilter.join('/')}`, 'warn');
+          return;
+        }
+
+        // Check if mission has open slots
+        const assigned = mission.assignedInterceptors || [];
+        const slots = mission.maxSlots || 1;
+        if (assigned.length >= slots) {
+          addLog(`${mission.name} — ALL SLOTS FILLED`, 'warn');
+          return;
+        }
+
+        const delay = SCRAMBLE_DELAY[picked.type] || 600;
+        picked.state = 'SCRAMBLING';
+        picked.scrambleUntil = state.gameTime + delay * 1000;
+        picked.scrambleOrder = { type: 'PATROL', mission };
+        picked.x = picked.base.x;
+        picked.y = picked.base.y;
+        const delaySec = Math.round(delay / GAME_SPEED);
+        addLog(`${picked.id} SCRAMBLING — ${mission.name} — AIRBORNE IN ${delaySec}s`, 'alert');
+
+        // Auto-select next ready aircraft at same base for rapid assignment
+        const base = mission.base;
+        const nextReady = base.interceptors.find(i => i.state === 'READY' && i !== picked);
+        if (nextReady && (mission.assignedInterceptors.length + 1) < (mission.maxSlots || 1)) {
+          state.selectedReadyInterceptor = nextReady;
+          // Keep base selected for continued assignment
+        } else {
+          state.selectedBase = null;
+          state.selectedReadyInterceptor = null;
+          state.selectedMission = null;
+        }
+        return;
+      }
+
+      // Toggle mission selection
+      state.selectedMission = (state.selectedMission === mission) ? null : mission;
+      state.selectedZone = null;
+    });
+
+    // Zone item click — select zone
+    missionPanelEl.addEventListener('mousedown', (e) => {
+      const row = e.target.closest('.zone-item');
+      if (!row) return;
+      e.stopPropagation();
+      const zoneId = row.dataset.zoneId;
+      const zone = state.zones.find(z => z.id === zoneId);
+      if (!zone) return;
+      state.selectedZone = (state.selectedZone === zone) ? null : zone;
+      state.selectedBase = null;
+      state.selectedThreat = null;
+      state.selectedInterceptor = null;
+      state.selectedReadyInterceptor = null;
+    });
+
+    // Doctrine row click — cycle doctrine value
+    missionPanelEl.addEventListener('mousedown', (e) => {
+      const row = e.target.closest('.doctrine-row');
+      if (!row || !state.selectedMission) return;
+      e.stopPropagation();
+      const field = row.dataset.doctrineField;
+      if (field) cycleDoctrine(state.selectedMission, field, 1);
+    });
+
+    // Crew remove click — unassign aircraft from mission
+    missionPanelEl.addEventListener('mousedown', (e) => {
+      const removeBtn = e.target.closest('.crew-remove');
+      if (!removeBtn) return;
+      e.stopPropagation();
+      const interceptorId = removeBtn.dataset.removeId;
+      const missionId = removeBtn.dataset.removeMission;
+      const mission = state.missions.find(m => m.id === missionId);
+      if (!mission) return;
+      const interceptor = mission.assignedInterceptors.find(i => i.id === interceptorId);
+      if (interceptor) {
+        clearMissionHud(interceptor);
+        // Send aircraft back to base
+        if (interceptor.state !== 'CRASHED' && interceptor.state !== 'READY' && interceptor.state !== 'TURNAROUND' && interceptor.state !== 'MAINTENANCE') {
+          interceptor.state = 'RTB';
+          interceptor.target = null;
+          interceptor.capPoint = null;
+        }
+        addLog(`${interceptor.id} REMOVED FROM ${mission.name} — RTB`, '');
+      }
+    });
+
+    // Confirm mission button
+    missionPanelEl.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.confirm-mission-btn')) {
+        e.stopPropagation();
+        // Simulate M key press to confirm
+        window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyM', key: 'm' }));
+      }
+      if (e.target.closest('.cancel-mission-btn')) {
+        e.stopPropagation();
+        window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape' }));
+      }
+    });
+  }
 
   // RTB button — uses mousedown (not click) because innerHTML rebuilds every frame
   // can destroy the button between mousedown and mouseup, preventing click from firing

@@ -1,9 +1,9 @@
 import { state } from './state.js';
-import { selectBase, selectThreat, selectInterceptor, addLog } from './hud.js';
+import { selectBase, selectThreat, selectInterceptor, addLog, cycleDoctrine } from './hud.js';
 import { toCanvas, fromCanvas, getZoom, getPan, setPan, zoomAtPoint, resetView } from './sector.js';
 import { clearMission } from './entities.js';
 import { playEmconShift, playScrambleSiren } from './audio.js';
-import { SCRAMBLE_DELAY, GAME_SPEED } from './constants.js';
+import { SCRAMBLE_DELAY, GAME_SPEED, MISSION_TYPES, DOCTRINE_DEFAULTS, NATO_PHONETIC, ZONE_COLORS, ZONE_BORDER_COLORS, pointInPolygon } from './constants.js';
 import { fireWeapon } from './intercept.js';
 
 let canvasEl = null;
@@ -142,8 +142,11 @@ function handleCanvasClick(e) {
 
   const { mx, my } = getMousePos(e);
 
-  // Mission define mode — block normal selection
-  if (state.missionDefineMode) return;
+  // Mission define/type menu mode — block normal selection
+  if (state.missionDefineMode || state.missionTypeMenu) return;
+
+  // Zone define mode — block normal selection
+  if (state.zoneDefineMode) return;
 
   // Check airborne interceptors
   for (const interceptor of state.interceptors) {
@@ -181,11 +184,25 @@ function handleCanvasClick(e) {
     return;
   }
 
+  // Check zones — click inside a zone polygon selects it
+  const nmClick = fromCanvas(mx, my);
+  for (const zone of state.zones) {
+    if (pointInPolygon(nmClick.x, nmClick.y, zone.vertices)) {
+      state.selectedZone = (state.selectedZone === zone) ? null : zone;
+      state.selectedBase = null;
+      state.selectedThreat = null;
+      state.selectedInterceptor = null;
+      state.selectedReadyInterceptor = null;
+      return;
+    }
+  }
+
   // Clicked nothing — clear selection
   state.selectedBase = null;
   state.selectedThreat = null;
   state.selectedInterceptor = null;
   state.selectedReadyInterceptor = null;
+  state.selectedZone = null;
 }
 
 // ═══════════════════════════════════════════
@@ -197,14 +214,33 @@ function handleRightClick(e) {
   const { mx, my } = getMousePos(e);
   const nmPos = fromCanvas(mx, my);
 
+  // Block right-click during type menu
+  if (state.missionTypeMenu) return;
+
+  // Zone define mode — place vertex
+  if (state.zoneDefineMode) {
+    state.zoneDefineVertices.push({ x: nmPos.x, y: nmPos.y });
+    addLog(`ZONE VERTEX ${state.zoneDefineVertices.length} PLACED`, '');
+    return;
+  }
+
   // Mission define mode — place waypoint
   if (state.missionDefineMode) {
-    if (state.missionDefineWaypoints.length >= 8) {
-      addLog('MAX 8 WAYPOINTS — PRESS M TO CONFIRM', 'warn');
+    const typeDef = MISSION_TYPES[state.missionDefineType];
+    if (state.missionDefineWaypoints.length >= typeDef.maxWaypoints) {
+      if (typeDef.maxWaypoints === 1) {
+        addLog('POINT ALREADY PLACED — PRESS M TO CONFIRM', 'warn');
+      } else {
+        addLog(`MAX ${typeDef.maxWaypoints} WAYPOINTS — PRESS M TO CONFIRM`, 'warn');
+      }
       return;
     }
     state.missionDefineWaypoints.push({ x: nmPos.x, y: nmPos.y });
-    addLog(`WAYPOINT ${state.missionDefineWaypoints.length} PLACED`, '');
+    if (typeDef.maxWaypoints === 1) {
+      addLog('POINT PLACED — PRESS M TO CONFIRM', '');
+    } else {
+      addLog(`WAYPOINT ${state.missionDefineWaypoints.length} PLACED`, '');
+    }
     return;
   }
 
@@ -283,7 +319,7 @@ function handleRightClick(e) {
         addLog(`WEAPONS HOLD — ENGAGEMENT DENIED`, 'warn');
         return;
       } else if (canEngage(interceptor, contactUnder)) {
-        // WCS allows engagement
+        // WCS allows engagement — keep mission so aircraft returns after kill
         interceptor.state = 'AIRBORNE';
         interceptor.target = contactUnder;
         interceptor.idTarget = null;
@@ -292,11 +328,11 @@ function handleRightClick(e) {
         interceptor.preDivertState = null;
         interceptor.preDivertTarget = null;
         interceptor.preDivertCapPoint = null;
-        clearMission(interceptor);
         const wcsLabel = contactUnder.allegiance === 'UNKNOWN' ? ' [WCS FREE]' : '';
-        addLog(`${interceptor.id} RETASKED → ${contactUnder.id}${wcsLabel}`, 'alert');
+        const mLabel = interceptor.mission ? ` — WILL RESUME ${interceptor.mission.name}` : '';
+        addLog(`${interceptor.id} RETASKED → ${contactUnder.id}${wcsLabel}${mLabel}`, 'alert');
       } else if (contactUnder.allegiance === 'UNKNOWN') {
-        // TIGHT + unknown — send on ID mission
+        // TIGHT + unknown — send on ID mission, keep mission assignment
         interceptor.state = 'ID_MISSION';
         interceptor.idTarget = contactUnder;
         interceptor.idProgress = 0;
@@ -306,8 +342,8 @@ function handleRightClick(e) {
         interceptor.preDivertState = null;
         interceptor.preDivertTarget = null;
         interceptor.preDivertCapPoint = null;
-        clearMission(interceptor);
-        addLog(`${interceptor.id} — VISUAL ID ON ${contactUnder.id}`, 'alert');
+        const mLabel = interceptor.mission ? ` — WILL RESUME ${interceptor.mission.name}` : '';
+        addLog(`${interceptor.id} — VISUAL ID ON ${contactUnder.id}${mLabel}`, 'alert');
       } else {
         addLog(`WCS ${wcs} — CANNOT ENGAGE ${contactUnder.id}`, 'warn');
         return;
@@ -362,62 +398,204 @@ function handleRightClick(e) {
 // ═══════════════════════════════════════════
 
 function handleKeyCommand(e) {
-  // Mission define mode — M to start/confirm, Escape to cancel
+  // Mission type menu — number keys to select type
+  if (state.missionTypeMenu) {
+    const typeKeys = Object.keys(MISSION_TYPES);
+    const keyNum = parseInt(e.key);
+    if (keyNum >= 1 && keyNum <= typeKeys.length) {
+      const typeKey = typeKeys[keyNum - 1];
+      const typeDef = MISSION_TYPES[typeKey];
+      // Check aircraft filter — only show type if base has matching aircraft
+      if (typeDef.aircraftFilter) {
+        const hasType = state.missionDefineBase.interceptors.some(i =>
+          typeDef.aircraftFilter.includes(i.type) && i.state !== 'CRASHED' && i.state !== 'MAINTENANCE'
+        );
+        if (!hasType) {
+          addLog(`NO ${typeDef.aircraftFilter.join('/')} AT THIS BASE`, 'warn');
+          return;
+        }
+      }
+      state.missionTypeMenu = false;
+      state.missionDefineMode = true;
+      state.missionDefineType = typeKey;
+      state.missionDefineWaypoints = [];
+      const wpNote = typeDef.maxWaypoints === 1 ? 'R-CLICK TO PLACE POINT' : 'R-CLICK TO PLACE WAYPOINTS';
+      addLog(`DEFINE ${typeDef.label} — ${wpNote} — M TO CONFIRM — ESC TO CANCEL`, '');
+      return;
+    }
+    if (e.code === 'Escape') {
+      state.missionTypeMenu = false;
+      state.missionDefineBase = null;
+      addLog('MISSION DEFINE CANCELLED', '');
+      return;
+    }
+    return;
+  }
+
+  // Mission define mode — M to confirm, Escape to cancel
   if (e.code === 'KeyM') {
     if (state.missionDefineMode) {
       // Confirm mission
-      if (state.missionDefineWaypoints.length < 2) {
-        addLog('NEED AT LEAST 2 WAYPOINTS — R-CLICK TO PLACE', 'warn');
+      const typeDef = MISSION_TYPES[state.missionDefineType];
+      if (state.missionDefineWaypoints.length < typeDef.minWaypoints) {
+        addLog(`NEED AT LEAST ${typeDef.minWaypoints} WAYPOINT${typeDef.minWaypoints > 1 ? 'S' : ''} — R-CLICK TO PLACE`, 'warn');
         return;
       }
       const num = state.nextMissionNum++;
+      const prefix = state.missionDefineType.replace('_', '-');
+      const doctrine = DOCTRINE_DEFAULTS[state.missionDefineType] || DOCTRINE_DEFAULTS.PATROL;
       const mission = {
-        id: `PATROL-${num}`,
-        name: `PATROL-${String(num).padStart(2, '0')}`,
+        id: `${prefix}-${num}`,
+        name: `${typeDef.label} ${String(num).padStart(2, '0')}`,
+        type: state.missionDefineType,
         base: state.missionDefineBase,
         waypoints: [...state.missionDefineWaypoints],
-        assignedInterceptor: null,
+        maxSlots: typeDef.maxSlots,
+        assignedInterceptors: [],
+        // Doctrine
+        weaponsDiscipline: doctrine.weaponsDiscipline,
+        threatPriority: doctrine.threatPriority,
+        engagementMode: doctrine.engagementMode,
+        pursuitLeash: doctrine.pursuitLeash,
+        engagementRange: doctrine.engagementRange,
+        emcon: doctrine.emcon,
+        fuelPolicy: doctrine.fuelPolicy,
+        notification: doctrine.notification,
       };
       state.missions.push(mission);
       state.missionDefineMode = false;
+      // Keep base selected so player can immediately assign aircraft
+      state.selectedBase = state.missionDefineBase;
+      state.selectedMission = mission;
       state.missionDefineBase = null;
+      state.missionDefineType = 'PATROL';
       state.missionDefineWaypoints = [];
-      addLog(`${mission.name} DEFINED — ${mission.waypoints.length} WAYPOINTS`, 'alert');
+      addLog(`${mission.name} DEFINED — SELECT AIRCRAFT THEN CLICK MISSION TO ASSIGN`, 'alert');
       return;
     }
     if (state.selectedBase) {
-      // Enter mission define mode
-      state.missionDefineMode = true;
+      // Open mission type picker menu
+      state.missionTypeMenu = true;
       state.missionDefineBase = state.selectedBase;
-      state.missionDefineWaypoints = [];
-      addLog('DEFINE PATROL — R-CLICK TO PLACE WAYPOINTS — M TO CONFIRM — ESC TO CANCEL', '');
+      addLog('SELECT MISSION TYPE: 1=PATROL 2=ALERT CAP 3=BARRIER 4=TANKER 5=AWACS | ESC=CANCEL', '');
       return;
     }
     return;
   }
 
   if (e.code === 'Escape') {
+    if (state.zoneDefineMode) {
+      state.zoneDefineMode = false;
+      state.zoneDefineVertices = [];
+      addLog('ZONE DEFINE CANCELLED', '');
+      return;
+    }
     if (state.missionDefineMode) {
       state.missionDefineMode = false;
       state.missionDefineBase = null;
+      state.missionDefineType = 'PATROL';
       state.missionDefineWaypoints = [];
       addLog('MISSION DEFINE CANCELLED', '');
       return;
     }
     // Clear selections
     state.selectedMission = null;
+    state.selectedZone = null;
     return;
   }
 
   // Delete selected mission — D key
   if (e.code === 'KeyD' && state.selectedMission) {
     const mission = state.selectedMission;
-    if (mission.assignedInterceptor) {
-      clearMission(mission.assignedInterceptor);
+    for (const interceptor of [...(mission.assignedInterceptors || [])]) {
+      clearMission(interceptor);
     }
     state.missions = state.missions.filter(m => m !== mission);
     state.selectedMission = null;
     addLog(`${mission.name} DELETED`, 'warn');
+    return;
+  }
+
+  // Doctrine keyboard shortcuts — 1-8 when mission selected
+  if (state.selectedMission && !state.missionDefineMode && !state.missionTypeMenu) {
+    const doctrineFields = ['weaponsDiscipline', 'threatPriority', 'engagementMode', 'pursuitLeash', 'engagementRange', 'emcon', 'fuelPolicy', 'notification'];
+    const keyNum = parseInt(e.key);
+    if (keyNum >= 1 && keyNum <= 8) {
+      const field = doctrineFields[keyNum - 1];
+      const direction = e.shiftKey ? -1 : 1;
+      cycleDoctrine(state.selectedMission, field, direction);
+      return;
+    }
+  }
+
+  // Zone define mode — Z key
+  if (e.code === 'KeyZ') {
+    if (state.zoneDefineMode) {
+      // Confirm zone — need at least 3 vertices
+      if (state.zoneDefineVertices.length < 3) {
+        addLog('NEED AT LEAST 3 VERTICES — R-CLICK TO PLACE', 'warn');
+        return;
+      }
+      const idx = state.nextZoneNum;
+      const name = NATO_PHONETIC[idx % NATO_PHONETIC.length];
+      const zone = {
+        id: `ZONE-${name}`,
+        name,
+        vertices: [...state.zoneDefineVertices],
+        color: ZONE_COLORS[idx % ZONE_COLORS.length],
+        borderColor: ZONE_BORDER_COLORS[idx % ZONE_BORDER_COLORS.length],
+        engagementPolicy: state.wcs, // inherit current global WCS
+        assignedMission: null,
+      };
+      state.zones.push(zone);
+      state.nextZoneNum++;
+      state.zoneDefineMode = false;
+      state.zoneDefineVertices = [];
+      addLog(`ZONE ${name} DEFINED — ${zone.vertices.length} VERTICES`, 'alert');
+      return;
+    }
+    // Enter zone define mode (nothing selected, or zone selected)
+    if (!state.missionDefineMode && !state.missionTypeMenu) {
+      state.zoneDefineMode = true;
+      state.zoneDefineVertices = [];
+      state.selectedBase = null;
+      state.selectedThreat = null;
+      state.selectedInterceptor = null;
+      state.selectedReadyInterceptor = null;
+      state.selectedMission = null;
+      addLog('DEFINE ZONE — R-CLICK TO PLACE VERTICES — Z TO CONFIRM — ESC TO CANCEL', '');
+      return;
+    }
+    return;
+  }
+
+  // Zone-mission binding — B key (zone selected + mission selected)
+  if (e.code === 'KeyB' && state.selectedZone) {
+    if (state.selectedMission) {
+      state.selectedZone.assignedMission = state.selectedZone.assignedMission === state.selectedMission ? null : state.selectedMission;
+      const label = state.selectedZone.assignedMission ? state.selectedMission.name : 'NONE';
+      addLog(`ZONE ${state.selectedZone.name} → ${label}`, '');
+    } else {
+      addLog('SELECT A MISSION FIRST (CLICK BASE → CLICK MISSION)', 'warn');
+    }
+    return;
+  }
+
+  // Zone engagement policy cycling — P key (zone selected)
+  if (e.code === 'KeyP' && state.selectedZone) {
+    const ZONE_WCS = ['FREE', 'TIGHT', 'HOLD'];
+    const idx = ZONE_WCS.indexOf(state.selectedZone.engagementPolicy);
+    state.selectedZone.engagementPolicy = ZONE_WCS[(idx + 1) % ZONE_WCS.length];
+    addLog(`ZONE ${state.selectedZone.name} POLICY → ${state.selectedZone.engagementPolicy}`, '');
+    return;
+  }
+
+  // Delete zone — D key (zone selected, no mission selected)
+  if (e.code === 'KeyD' && state.selectedZone && !state.selectedMission) {
+    const zone = state.selectedZone;
+    state.zones = state.zones.filter(z => z !== zone);
+    state.selectedZone = null;
+    addLog(`ZONE ${zone.name} DELETED`, 'warn');
     return;
   }
 

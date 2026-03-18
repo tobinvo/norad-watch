@@ -83,10 +83,19 @@ export const state = {
   // Mission definition mode
   missionDefineMode: false,
   missionDefineBase: null,
+  missionDefineType: 'PATROL',
   missionDefineWaypoints: [],
+  missionTypeMenu: false,     // showing type picker menu
 
   // Formations
   nextFormationNum: 1,
+
+  // Defense zones
+  zones: [],
+  nextZoneNum: 0,           // index into NATO_PHONETIC for auto-naming
+  selectedZone: null,
+  zoneDefineMode: false,
+  zoneDefineVertices: [],
 
   // Difficulty
   difficulty: 'STANDARD',

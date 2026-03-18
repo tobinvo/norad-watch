@@ -322,6 +322,67 @@ export const MISSILE_ARRIVAL_DIST = 1.5; // nm — missile "arrives" at target
 
 export const PATROL_DETECT_RANGE = 40;    // nm — patrolling interceptors auto-engage within this range
 
+// ═══════════════════════════════════════════
+// MISSION TYPES
+// ═══════════════════════════════════════════
+
+export const MISSION_TYPES = {
+  PATROL:       { label: 'PATROL',       minWaypoints: 2, maxWaypoints: 8, loop: true,  maxSlots: 4, aircraftFilter: null,       description: '2-8 WP, looping' },
+  ALERT_CAP:    { label: 'ALERT CAP',    minWaypoints: 1, maxWaypoints: 1, loop: false, maxSlots: 2, aircraftFilter: null,       description: '1 WP, orbit' },
+  BARRIER:      { label: 'BARRIER',      minWaypoints: 2, maxWaypoints: 8, loop: false, maxSlots: 4, aircraftFilter: null,       description: '2+ WP, line' },
+  TANKER_ORBIT: { label: 'TANKER ORBIT', minWaypoints: 1, maxWaypoints: 1, loop: false, maxSlots: 2, aircraftFilter: ['KC-135'], description: '1 WP, KC-135' },
+  AWACS_ORBIT:  { label: 'AWACS ORBIT',  minWaypoints: 1, maxWaypoints: 1, loop: false, maxSlots: 2, aircraftFilter: ['E-3A'],   description: '1 WP, E-3A' },
+};
+
+// Doctrine defaults per mission type
+export const DOCTRINE_DEFAULTS = {
+  PATROL:       { weaponsDiscipline: 'STANDARD', threatPriority: 'NEAREST',  engagementMode: 'SPLIT',        pursuitLeash: 60, engagementRange: 40, emcon: 'HOT',  fuelPolicy: 'RTB_AT_BINGO', notification: 'AUTO_PAUSE' },
+  ALERT_CAP:    { weaponsDiscipline: 'STANDARD', threatPriority: 'NEAREST',  engagementMode: 'SPLIT',        pursuitLeash: 0,  engagementRange: 60, emcon: 'HOT',  fuelPolicy: 'RTB_AT_BINGO', notification: 'AUTO_PAUSE' },
+  BARRIER:      { weaponsDiscipline: 'STANDARD', threatPriority: 'NEAREST',  engagementMode: 'SPLIT',        pursuitLeash: 40, engagementRange: 40, emcon: 'HOT',  fuelPolicy: 'RTB_AT_BINGO', notification: 'AUTO_PAUSE' },
+  TANKER_ORBIT: { weaponsDiscipline: 'STANDARD', threatPriority: 'NEAREST',  engagementMode: 'CONSOLIDATED', pursuitLeash: 0,  engagementRange: 0,  emcon: 'COLD', fuelPolicy: 'RTB_AT_BINGO', notification: 'LOG_ONLY' },
+  AWACS_ORBIT:  { weaponsDiscipline: 'STANDARD', threatPriority: 'NEAREST',  engagementMode: 'CONSOLIDATED', pursuitLeash: 0,  engagementRange: 0,  emcon: 'HOT',  fuelPolicy: 'RTB_AT_BINGO', notification: 'AUTO_PAUSE' },
+};
+
+// Threat type priority order (highest to lowest) for BY_TYPE doctrine
+export const THREAT_PRIORITY_ORDER = ['ICBM', 'CRUISE_MISSILE', 'BOMBER', 'FIGHTER', 'ARM'];
+
+// ═══════════════════════════════════════════
+// DEFENSE ZONES
+// ═══════════════════════════════════════════
+
+export const NATO_PHONETIC = ['ALPHA', 'BRAVO', 'CHARLIE', 'DELTA', 'ECHO', 'FOXTROT', 'GOLF', 'HOTEL', 'INDIA', 'JULIET', 'KILO', 'LIMA'];
+
+export const ZONE_COLORS = [
+  'rgba(255, 136, 0, 0.08)',   // amber
+  'rgba(0, 180, 255, 0.08)',   // blue
+  'rgba(255, 80, 80, 0.08)',   // red
+  'rgba(0, 255, 136, 0.08)',   // green
+  'rgba(200, 100, 255, 0.08)', // purple
+  'rgba(255, 255, 0, 0.08)',   // yellow
+];
+
+export const ZONE_BORDER_COLORS = [
+  'rgba(255, 136, 0, 0.4)',
+  'rgba(0, 180, 255, 0.4)',
+  'rgba(255, 80, 80, 0.4)',
+  'rgba(0, 255, 136, 0.4)',
+  'rgba(200, 100, 255, 0.4)',
+  'rgba(255, 255, 0, 0.4)',
+];
+
+// Ray-casting point-in-polygon test
+export function pointInPolygon(x, y, vertices) {
+  let inside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const xi = vertices[i].x, yi = vertices[i].y;
+    const xj = vertices[j].x, yj = vertices[j].y;
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
 // EMCON range multipliers
 export const EMCON_RANGE_MULT = { ACTIVE: 1.0, REDUCED: 0.5, SILENT: 0 };
 

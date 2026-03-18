@@ -71,6 +71,7 @@ export function createInterceptor(base, typeName) {
     // Mission / waypoint navigation
     mission: null,            // reference to assigned patrol mission
     missionLeg: 0,            // current waypoint index in mission
+    missionDirection: 1,      // 1 or -1, for BARRIER back-and-forth
     waypoints: [],            // ad-hoc waypoints (shift+right-click)
     waypointIndex: 0,         // current index in ad-hoc waypoints
     // Scramble delay
@@ -79,6 +80,7 @@ export function createInterceptor(base, typeName) {
     // Engagement model
     radarCold: false,         // G key toggle — cold = no radar emissions, can't fire SARH/ACTIVE
     reattackUntil: 0,         // gameTime (ms) — cooldown after miss before next fire
+    holdingPastBingo: false,  // HOLD_UNTIL_RELIEVED — staying on station past bingo fuel
   };
 }
 
@@ -244,7 +246,21 @@ export function getCurrentWaypoint(interceptor) {
 
 function advanceWaypoint(interceptor) {
   if (interceptor.mission && interceptor.mission.waypoints.length > 1) {
-    interceptor.missionLeg = ((interceptor.missionLeg || 0) + 1) % interceptor.mission.waypoints.length;
+    const m = interceptor.mission;
+    if (m.type === 'BARRIER') {
+      // Back-and-forth: reverse direction at endpoints
+      const leg = interceptor.missionLeg || 0;
+      const next = leg + interceptor.missionDirection;
+      if (next < 0 || next >= m.waypoints.length) {
+        interceptor.missionDirection *= -1;
+        interceptor.missionLeg = leg + interceptor.missionDirection;
+      } else {
+        interceptor.missionLeg = next;
+      }
+      return true;
+    }
+    // PATROL: modulo looping (default)
+    interceptor.missionLeg = ((interceptor.missionLeg || 0) + 1) % m.waypoints.length;
     return true;
   }
   if (interceptor.waypoints && interceptor.waypoints.length > 0) {
@@ -262,12 +278,53 @@ function advanceWaypoint(interceptor) {
   return false;
 }
 
+// Calculate starting waypoint leg for phase-offset along a mission route
+export function calculateStartingLeg(mission, slotIndex, totalAssigned) {
+  const wps = mission.waypoints;
+  if (!wps || wps.length <= 1 || totalAssigned <= 1) return { leg: 0, direction: 1 };
+
+  // Calculate total route distance
+  let totalDist = 0;
+  const segDists = [];
+  for (let i = 0; i < wps.length - 1; i++) {
+    const dx = wps[i + 1].x - wps[i].x;
+    const dy = wps[i + 1].y - wps[i].y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    segDists.push(d);
+    totalDist += d;
+  }
+  // For PATROL, add closing segment back to start
+  if (mission.type === 'PATROL') {
+    const dx = wps[0].x - wps[wps.length - 1].x;
+    const dy = wps[0].y - wps[wps.length - 1].y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    segDists.push(d);
+    totalDist += d;
+  }
+
+  // Target offset distance for this slot
+  const targetDist = (slotIndex / totalAssigned) * totalDist;
+
+  // Walk segments to find the starting leg
+  let walked = 0;
+  for (let i = 0; i < segDists.length; i++) {
+    if (walked + segDists[i] >= targetDist) {
+      const leg = (mission.type === 'PATROL') ? (i % wps.length) : Math.min(i, wps.length - 1);
+      return { leg, direction: 1 };
+    }
+    walked += segDists[i];
+  }
+  return { leg: 0, direction: 1 };
+}
+
 export function clearMission(interceptor) {
   if (interceptor.mission) {
-    interceptor.mission.assignedInterceptor = null;
+    const m = interceptor.mission;
+    m.assignedInterceptors = m.assignedInterceptors.filter(i => i !== interceptor);
     interceptor.mission = null;
   }
   interceptor.missionLeg = 0;
+  interceptor.missionDirection = 1;
   interceptor.waypoints = [];
   interceptor.waypointIndex = 0;
 }
@@ -607,9 +664,20 @@ export function moveInterceptor(interceptor, dSec) {
       } else if (order && order.type === 'PATROL' && order.mission) {
         interceptor.state = 'CAP';
         interceptor.mission = order.mission;
-        interceptor.missionLeg = 0;
         interceptor.capPoint = null;
-        order.mission.assignedInterceptor = interceptor;
+        order.mission.assignedInterceptors.push(interceptor);
+        // Phase-offset: distribute aircraft along route
+        const slotIdx = order.mission.assignedInterceptors.length - 1;
+        const total = order.mission.assignedInterceptors.length;
+        const start = calculateStartingLeg(order.mission, slotIdx, total);
+        interceptor.missionLeg = start.leg;
+        interceptor.missionDirection = start.direction;
+        // EMCON per mission doctrine
+        if (order.mission.emcon === 'COLD' || order.mission.emcon === 'AUTO') {
+          interceptor.radarCold = true;
+        } else {
+          interceptor.radarCold = false;
+        }
       } else if (order && order.type === 'CAP' && order.capPoint) {
         interceptor.state = 'CAP';
         interceptor.capPoint = order.capPoint;
@@ -673,6 +741,23 @@ export function moveInterceptor(interceptor, dSec) {
         return;
       }
 
+      // HOLD_UNTIL_RELIEVED: stay on station past bingo (risk crash)
+      const holdPolicy = interceptor.mission && interceptor.mission.fuelPolicy === 'HOLD_UNTIL_RELIEVED';
+      if (holdPolicy) {
+        interceptor.holdingPastBingo = true;
+        // Critical fuel override — force RTB at 5% to avoid crash
+        if (interceptor.fuel / interceptor.fuelMax <= 0.05) {
+          interceptor.holdingPastBingo = false;
+          interceptor.state = 'RTB';
+          interceptor.target = null;
+          interceptor.idTarget = null;
+          interceptor.capPoint = null;
+          addLog(`${interceptor.id} FUEL CRITICAL — FORCED RTB`, 'alert');
+          return;
+        }
+        return; // stay on station
+      }
+
       interceptor.state = 'RTB';
       interceptor.target = null;
       interceptor.idTarget = null;
@@ -707,7 +792,12 @@ export function moveInterceptor(interceptor, dSec) {
     if (!isInProsecutionZone(t.x, t.y)) {
       interceptor.idTarget = null;
       interceptor.idProgress = 0;
-      interceptor.state = 'RTB';
+      if (interceptor.mission) {
+        interceptor.state = 'CAP';
+        interceptor.capPoint = null;
+      } else {
+        interceptor.state = 'RTB';
+      }
       return;
     }
     const ip = computeInterceptPoint(interceptor, t);
@@ -830,6 +920,7 @@ export function moveInterceptor(interceptor, dSec) {
       interceptor.x = interceptor.base.x;
       interceptor.y = interceptor.base.y;
       interceptor.bingo = false;
+      interceptor.holdingPastBingo = false;
       interceptor.idProgress = 0;
       interceptor.target = null;
       interceptor.idTarget = null;
@@ -901,9 +992,14 @@ function completeIdentification(interceptor) {
     return;
   }
 
-  // Friendly or no weapons — orbit here
+  // Friendly or no weapons — return to mission or orbit
   interceptor.state = 'CAP';
-  interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
+  if (interceptor.mission) {
+    interceptor.capPoint = null; // resume mission waypoints
+    addLog(`${interceptor.id} RESUMING ${interceptor.mission.name}`, '');
+  } else {
+    interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -1094,7 +1190,16 @@ export function moveMissile(missile, dSec) {
 
 function setReattackCooldown(missile) {
   if (missile.shooter) {
-    missile.shooter.reattackUntil = state.gameTime + REATTACK_COOLDOWN;
+    // CONSERVATIVE discipline: break off after miss, return to CAP
+    const shooter = missile.shooter;
+    if (shooter.mission && shooter.mission.weaponsDiscipline === 'CONSERVATIVE') {
+      shooter.target = null;
+      shooter.state = 'CAP';
+      shooter.capPoint = null; // resume mission waypoints
+      addLog(`${shooter.id} MISS — CONSERVATIVE ROE — RETURNING TO ${shooter.mission.name}`, '');
+      return;
+    }
+    shooter.reattackUntil = state.gameTime + REATTACK_COOLDOWN;
   }
 }
 

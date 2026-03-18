@@ -1,4 +1,4 @@
-import { CITY_IMPACT_RADIUS, THREAT_TYPES, MISSILE_TYPES, PATROL_DETECT_RANGE, ARM_IMPACT_RANGE, ESCORT_PROTECT_RANGE, REATTACK_COOLDOWN, TRACKING_AUTOFIRE_DELAY } from './constants.js';
+import { CITY_IMPACT_RADIUS, THREAT_TYPES, MISSILE_TYPES, PATROL_DETECT_RANGE, ARM_IMPACT_RANGE, ESCORT_PROTECT_RANGE, REATTACK_COOLDOWN, TRACKING_AUTOFIRE_DELAY, THREAT_PRIORITY_ORDER, pointInPolygon } from './constants.js';
 import { state } from './state.js';
 import { addLog } from './hud.js';
 import { isInProsecutionZone } from './sector.js';
@@ -190,7 +190,8 @@ export function resolveEngagements() {
       interceptor.target = null;
       if (totalWeapons(interceptor) > 0) {
         // Try to retarget nearest threat
-        const next = findNearestTarget(interceptor, PATROL_DETECT_RANGE);
+        const retargetRange = (interceptor.mission && interceptor.mission.engagementRange != null) ? interceptor.mission.engagementRange : PATROL_DETECT_RANGE;
+        const next = findNearestTarget(interceptor, retargetRange);
         if (next) {
           interceptor.state = 'AIRBORNE';
           interceptor.target = next;
@@ -198,6 +199,7 @@ export function resolveEngagements() {
         } else if (interceptor.mission) {
           interceptor.state = 'CAP';
           interceptor.capPoint = null;
+          if (interceptor.mission.emcon === 'AUTO') interceptor.radarCold = true;
           addLog(`${interceptor.id} TARGET DOWN — RESUMING ${interceptor.mission.name}`, '');
         } else {
           interceptor.state = 'CAP';
@@ -235,9 +237,11 @@ export function resolveEngagements() {
       }
     }
 
-    // Auto-fire after brief TRACKING delay
+    // Auto-fire after brief TRACKING delay (modified by weapons discipline)
     if (interceptor.state === 'TRACKING' && interceptor.trackingSince) {
-      if (state.gameTime - interceptor.trackingSince >= TRACKING_AUTOFIRE_DELAY) {
+      const discipline = (interceptor.mission && interceptor.mission.weaponsDiscipline) || 'STANDARD';
+      const fireDelay = discipline === 'WEAPONS_FREE' ? 0 : TRACKING_AUTOFIRE_DELAY;
+      if (state.gameTime - interceptor.trackingSince >= fireDelay) {
         if (!hasMissileInFlight(interceptor) && state.gameTime >= interceptor.reattackUntil) {
           fireWeapon(interceptor);
         }
@@ -259,6 +263,8 @@ export function resolveEngagements() {
         interceptor.state = 'CAP';
         if (interceptor.mission) {
           interceptor.capPoint = null;
+          // AUTO EMCON: go cold when returning to CAP
+          if (interceptor.mission.emcon === 'AUTO') interceptor.radarCold = true;
           addLog(`${interceptor.id} SPLASH — RESUMING ${interceptor.mission.name}`, '');
         } else {
           interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
@@ -402,64 +408,222 @@ export function resolveEngagements() {
   }
 }
 
+// ── Helper: distance between two entities ──
+function distBetween(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+// ── Helper: distance from an interceptor to its nearest mission waypoint ──
+function distToMissionStation(interceptor) {
+  if (!interceptor.mission || !interceptor.mission.waypoints.length) return 0;
+  let minD = Infinity;
+  for (const wp of interceptor.mission.waypoints) {
+    const dx = interceptor.x - wp.x;
+    const dy = interceptor.y - wp.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < minD) minD = d;
+  }
+  return minD;
+}
+
+// ── Helper: distance from a contact to its nearest city ──
+function distToNearestCity(contact) {
+  let minD = Infinity;
+  for (const city of state.cities) {
+    const dx = contact.x - city.x;
+    const dy = contact.y - city.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < minD) minD = d;
+  }
+  return minD;
+}
+
+// ── Helper: sort contacts by mission threat priority ──
+function sortByPriority(contacts, priority, interceptor) {
+  if (priority === 'BY_TYPE') {
+    contacts.sort((a, b) => {
+      const aIdx = THREAT_PRIORITY_ORDER.indexOf(a.type);
+      const bIdx = THREAT_PRIORITY_ORDER.indexOf(b.type);
+      return (aIdx === -1 ? 99 : aIdx) - (bIdx === -1 ? 99 : bIdx);
+    });
+  } else if (priority === 'BY_CITY') {
+    contacts.sort((a, b) => distToNearestCity(a) - distToNearestCity(b));
+  } else {
+    // NEAREST (default)
+    contacts.sort((a, b) => distBetween(a, interceptor) - distBetween(b, interceptor));
+  }
+}
+
 // ── Patrol auto-engagement — patrolling interceptors detect and engage ──
 export function updatePatrolEngagement() {
+  // Group mission aircraft for SPLIT coordination
+  const missionEngagements = new Map(); // missionId → Set of contacted target ids already claimed
+
   for (const interceptor of state.interceptors) {
     if (interceptor.state !== 'CAP') continue;
     if (totalWeapons(interceptor) <= 0) continue;
     if (interceptor.type === 'KC-135' || interceptor.type === 'E-3A') continue;
 
-    const wcs = getEffectiveWCS(interceptor);
-    if (wcs === 'HOLD') continue;
+    const baseWcs = getEffectiveWCS(interceptor);
+    if (baseWcs === 'HOLD') continue;
 
     // Already has a missile in flight — don't retask
     if (state.missiles.some(m => m.shooter === interceptor && m.state === 'FLIGHT')) continue;
 
-    let nearest = null;
-    let nearestDist = Infinity;
+    // Determine engagement range — mission doctrine or global default
+    const mission = interceptor.mission;
+    const engageRange = (mission && mission.engagementRange != null) ? mission.engagementRange : PATROL_DETECT_RANGE;
+    if (engageRange <= 0) continue; // tanker/AWACS orbits with range=0 don't engage
 
+    // Collect all valid contacts in engagement range
+    // Doctrine cascade: per-unit WCS → zone policy → global WCS
+    const candidates = [];
     for (const contact of state.contacts) {
       if (contact.state !== 'ACTIVE' || !contact.detected) continue;
       if (contact.allegiance === 'FRIENDLY') continue;
-      if (wcs === 'TIGHT' && contact.allegiance !== 'HOSTILE') continue;
 
-      const dx = contact.x - interceptor.x;
-      const dy = contact.y - interceptor.y;
-      const d = Math.sqrt(dx * dx + dy * dy);
+      // Check zone-specific engagement policy for this contact
+      let effectiveWcs = baseWcs;
+      for (const zone of state.zones) {
+        if (zone.assignedMission && mission && zone.assignedMission === mission) {
+          if (pointInPolygon(contact.x, contact.y, zone.vertices)) {
+            effectiveWcs = zone.engagementPolicy;
+            break;
+          }
+        }
+      }
+      if (effectiveWcs === 'HOLD') continue;
+      if (effectiveWcs === 'TIGHT' && contact.allegiance !== 'HOSTILE') continue;
 
-      if (d <= PATROL_DETECT_RANGE && d < nearestDist) {
+      const d = distBetween(contact, interceptor);
+      if (d <= engageRange) {
+        candidates.push(contact);
+      }
+    }
+
+    if (candidates.length === 0) continue;
+
+    // Sort by mission threat priority
+    const priority = (mission && mission.threatPriority) || 'NEAREST';
+    sortByPriority(candidates, priority, interceptor);
+
+    // SPLIT mode: skip targets already claimed by mission-mates
+    let chosen = null;
+    if (mission && mission.engagementMode === 'SPLIT') {
+      if (!missionEngagements.has(mission.id)) missionEngagements.set(mission.id, new Set());
+      const claimed = missionEngagements.get(mission.id);
+      for (const c of candidates) {
+        if (!claimed.has(c.id)) {
+          chosen = c;
+          claimed.add(c.id);
+          break;
+        }
+      }
+      if (!chosen) chosen = candidates[0]; // all claimed, double up on highest priority
+    } else {
+      // CONSOLIDATED or no mission: pick top priority
+      chosen = candidates[0];
+    }
+
+    if (!chosen) continue;
+
+    // If target is an escorted lead, redirect to nearest escort
+    let actualTarget = chosen;
+    if (chosen.formationRole === 'LEAD') {
+      const activeEscorts = getActiveEscorts(chosen);
+      if (activeEscorts.length > 0) {
+        let best = activeEscorts[0];
+        let bestD = Infinity;
+        for (const e of activeEscorts) {
+          const d = distBetween(e, interceptor);
+          if (d < bestD) { best = e; bestD = d; }
+        }
+        actualTarget = best;
+      }
+    }
+
+    interceptor.state = 'AIRBORNE';
+    interceptor.target = actualTarget;
+    // AUTO EMCON: go hot when engaging
+    if (mission && mission.emcon === 'AUTO') interceptor.radarCold = false;
+    // Keep mission reference — will return to patrol after kill
+    const wcsLabel = actualTarget.allegiance === 'UNKNOWN' ? ' [WCS FREE]' : '';
+    const missionLabel = mission ? `${mission.name} ` : '';
+    addLog(`${missionLabel}${interceptor.id} ENGAGING ${actualTarget.id}${wcsLabel}`, 'alert');
+
+    // Notification threshold — mission doctrine controls auto-pause
+    const shouldPause = !mission || mission.notification !== 'LOG_ONLY';
+    if (shouldPause) return true; // signal auto-pause
+  }
+  return false;
+}
+
+// ── Patrol auto-ID — CAP aircraft auto-ID nearby UNKNOWN contacts ──
+export function updatePatrolAutoID() {
+  for (const interceptor of state.interceptors) {
+    if (interceptor.state !== 'CAP') continue;
+    if (interceptor.type === 'KC-135' || interceptor.type === 'E-3A') continue;
+
+    // Determine engagement range — mission doctrine or global default
+    const mission = interceptor.mission;
+    const engageRange = (mission && mission.engagementRange != null) ? mission.engagementRange : PATROL_DETECT_RANGE;
+    if (engageRange <= 0) continue;
+
+    // Check if anyone is already ID-ing a contact — avoid double-teaming
+    const alreadyBeingIDed = new Set();
+    for (const i of state.interceptors) {
+      if (i.state === 'ID_MISSION' && i.idTarget) alreadyBeingIDed.add(i.idTarget.id);
+    }
+
+    // Find nearest UNKNOWN contact within engagement range
+    let nearest = null;
+    let nearestDist = Infinity;
+    for (const contact of state.contacts) {
+      if (contact.state !== 'ACTIVE' || !contact.detected) continue;
+      if (contact.allegiance !== 'UNKNOWN') continue;
+      if (alreadyBeingIDed.has(contact.id)) continue;
+
+      const d = distBetween(contact, interceptor);
+      if (d <= engageRange && d < nearestDist) {
         nearest = contact;
         nearestDist = d;
       }
     }
 
-    if (nearest) {
-      // If target is an escorted lead, redirect to nearest escort
-      let actualTarget = nearest;
-      if (nearest.formationRole === 'LEAD') {
-        const activeEscorts = getActiveEscorts(nearest);
-        if (activeEscorts.length > 0) {
-          let best = activeEscorts[0];
-          let bestD = Infinity;
-          for (const e of activeEscorts) {
-            const dx = e.x - interceptor.x;
-            const dy = e.y - interceptor.y;
-            const d = Math.sqrt(dx * dx + dy * dy);
-            if (d < bestD) { best = e; bestD = d; }
-          }
-          actualTarget = best;
-        }
-      }
-      interceptor.state = 'AIRBORNE';
-      interceptor.target = actualTarget;
-      // Keep mission reference — will return to patrol after kill
-      const wcsLabel = actualTarget.allegiance === 'UNKNOWN' ? ' [WCS FREE]' : '';
-      const missionLabel = interceptor.mission ? `${interceptor.mission.name} ` : '';
-      addLog(`${missionLabel}${interceptor.id} ENGAGING ${actualTarget.id}${wcsLabel}`, 'alert');
-      return true; // signal auto-pause
-    }
+    if (!nearest) continue;
+
+    interceptor.state = 'ID_MISSION';
+    interceptor.idTarget = nearest;
+    interceptor.idProgress = 0;
+    const missionLabel = mission ? `${mission.name} ` : '';
+    addLog(`${missionLabel}${interceptor.id} INVESTIGATING ${nearest.id}`, 'warn');
+    return true; // signal auto-pause
   }
   return false;
+}
+
+// ── Pursuit leash check — break off retreating contacts beyond leash distance ──
+export function checkPursuitLeash() {
+  for (const interceptor of state.interceptors) {
+    if (interceptor.state !== 'AIRBORNE' && interceptor.state !== 'TRACKING') continue;
+    if (!interceptor.target || !interceptor.mission) continue;
+
+    const mission = interceptor.mission;
+    if (!mission.pursuitLeash || mission.pursuitLeash <= 0) continue;
+
+    // Only leash on retreating contacts (probes turning back)
+    if (!interceptor.target.turnedBack) continue;
+
+    const stationDist = distToMissionStation(interceptor);
+    if (stationDist > mission.pursuitLeash) {
+      interceptor.target = null;
+      interceptor.state = 'CAP';
+      interceptor.capPoint = null; // resume mission waypoints
+      addLog(`${interceptor.id} BREAKING PURSUIT — RETURNING TO ${mission.name}`, '');
+    }
+  }
 }
 
 export function checkWinLose() {
