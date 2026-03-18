@@ -620,7 +620,7 @@ export function renderSelectionDetail() {
       for (const i of scrambling) {
         const remainMs = i.scrambleUntil - state.gameTime;
         const remainSec = Math.max(0, Math.ceil(remainMs / 1000 / GAME_SPEED));
-        html += `<div class="detail-assigned" style="color: #ffcc00">${i.id} SCRAMBLING ${remainSec}s</div>`;
+        html += `<div class="detail-assigned" style="color: #ffcc00">${i.id} SCRAMBLING ${remainSec}s <button class="cancel-scramble-btn" data-interceptor-id="${i.id}">CANCEL</button></div>`;
       }
     }
 
@@ -864,6 +864,26 @@ export function initHud() {
       }
     });
   }
+
+  // Cancel scramble button
+  panel.addEventListener('mousedown', (e) => {
+    const btn = e.target.closest('.cancel-scramble-btn');
+    if (!btn) return;
+    e.stopPropagation();
+    const id = btn.dataset.interceptorId;
+    const interceptor = state.interceptors.find(i => i.id === id && i.state === 'SCRAMBLING');
+    if (!interceptor) return;
+    if (interceptor.scrambleOrder && interceptor.scrambleOrder.mission) {
+      const mission = interceptor.scrambleOrder.mission;
+      if (mission.assignedInterceptors) {
+        mission.assignedInterceptors = mission.assignedInterceptors.filter(i => i !== interceptor);
+      }
+    }
+    interceptor.state = 'READY';
+    interceptor.scrambleOrder = null;
+    interceptor.scrambleUntil = 0;
+    addLog(`${interceptor.id} SCRAMBLE CANCELLED`, 'warn');
+  });
 
   // RTB button — uses mousedown (not click) because innerHTML rebuilds every frame
   // can destroy the button between mousedown and mouseup, preventing click from firing

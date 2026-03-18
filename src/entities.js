@@ -1,4 +1,4 @@
-import { AIRCRAFT_TYPES, THREAT_TYPES, ARRIVAL_THRESHOLD, ID_RANGE, ID_TIME, CIVILIAN_TYPES,
+import { AIRCRAFT_TYPES, THREAT_TYPES, ARRIVAL_THRESHOLD, MISSION_WAYPOINT_THRESHOLD, ID_RANGE, ID_TIME, CIVILIAN_TYPES,
   MISSILE_TYPES, PK_TARGET_MODIFIERS, DAMAGE_DESTROY_CHANCE, MISSILE_ARRIVAL_DIST,
   TANKER_REFUEL_RANGE, TANKER_REFUEL_RATE, TANKER_REFUEL_TARGET,
   DATA_LINK_RANGE, FIGHTER_ORBIT_RATE, MIDCOURSE_LOST_PK_MOD,
@@ -703,8 +703,20 @@ export function moveInterceptor(interceptor, dSec) {
     return;
   }
 
-  // Burn fuel (per game-second)
-  interceptor.fuel -= interceptor.spec.fuelBurnRate * dSec;
+  // Variable speed based on state
+  const isPatrolling = interceptor.state === 'CAP';
+  const isIntercepting = interceptor.state === 'AIRBORNE' || interceptor.state === 'TRACKING' || interceptor.state === 'ID_MISSION';
+  if (isPatrolling && interceptor.spec.patrolSpeed) {
+    interceptor.speed = interceptor.spec.patrolSpeed;
+  } else if (isIntercepting && interceptor.spec.interceptSpeed) {
+    interceptor.speed = interceptor.spec.interceptSpeed;
+  } else {
+    interceptor.speed = interceptor.spec.speed;
+  }
+
+  // Burn fuel — scales with speed ratio (patrol saves fuel, afterburner burns more)
+  const speedRatio = interceptor.speed / interceptor.spec.speed;
+  interceptor.fuel -= interceptor.spec.fuelBurnRate * speedRatio * dSec;
 
   // Crash on empty
   if (interceptor.fuel <= 0) {
@@ -902,7 +914,8 @@ export function moveInterceptor(interceptor, dSec) {
   }
 
   // Waypoint advancement — if CAP and close to current waypoint, advance to next
-  if (interceptor.state === 'CAP' && dist < ARRIVAL_THRESHOLD) {
+  const wpThreshold = (interceptor.mission || (interceptor.waypoints && interceptor.waypoints.length > 0)) ? MISSION_WAYPOINT_THRESHOLD : ARRIVAL_THRESHOLD;
+  if (interceptor.state === 'CAP' && dist < wpThreshold) {
     if (advanceWaypoint(interceptor)) {
       const wp = getCurrentWaypoint(interceptor);
       if (wp) {

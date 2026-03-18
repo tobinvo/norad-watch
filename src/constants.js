@@ -32,7 +32,8 @@ export const AUTO_PAUSE_COOLDOWN = 2000; // real-ms between auto-pauses
 
 export const CITY_IMPACT_RADIUS = 5;
 export const AWACS_DETECTION_RANGE = 200;
-export const ARRIVAL_THRESHOLD = 3; // nm — "close enough" for RTB/CAP
+export const ARRIVAL_THRESHOLD = 3;      // nm — "close enough" for RTB
+export const MISSION_WAYPOINT_THRESHOLD = 8; // nm — wider sweep around patrol/barrier waypoints
 
 // ═══════════════════════════════════════════
 // CLASSIFICATION & IFF
@@ -138,10 +139,12 @@ export const AIRCRAFT_TYPES = {
     name: 'F-15A Eagle',
     callsign: 'EAGLE',
     role: 'AIR SUPERIORITY',
-    desc: 'Fast, heavy loadout. 4 Sparrows (must hold lock) + 4 Sidewinders. Best radar. Burns fuel.',
+    desc: 'Fast, heavy loadout. 4 Sparrows (must hold lock) + 4 Sidewinders. Best radar. Burns fuel. 20s scramble.',
     speed: 900,
+    patrolSpeed: 550,
+    interceptSpeed: 1200,
     fuelCapacity: 100,
-    fuelBurnRate: 0.04,     // ~83s real endurance, 300nm round trip
+    fuelBurnRate: 0.04,     // cruise burn rate
     weapons: 4,
     weaponType: 'SPARROW',
     weaponsRange: 20,
@@ -161,10 +164,12 @@ export const AIRCRAFT_TYPES = {
     name: 'F-16C Falcon',
     callsign: 'VIPER',
     role: 'MULTIROLE',
-    desc: 'Fire-and-forget AMRAAMs + Sidewinder backup. Good endurance. Reliable workhorse.',
+    desc: 'Fire-and-forget AMRAAMs + Sidewinder backup. Good endurance. Reliable workhorse. 15s scramble.',
     speed: 780,
+    patrolSpeed: 480,
+    interceptSpeed: 1050,
     fuelCapacity: 100,
-    fuelBurnRate: 0.028,    // ~119s real endurance, 390nm round trip
+    fuelBurnRate: 0.028,    // cruise burn rate
     weapons: 2,
     weaponType: 'AMRAAM',
     weaponsRange: 25,
@@ -184,10 +189,12 @@ export const AIRCRAFT_TYPES = {
     name: 'F-106A Delta Dart',
     callsign: 'DART',
     role: 'INTERCEPTOR',
-    desc: 'Fast interceptor. 1 nuclear Genie + 2 IR Falcons. Fire control computes lead. Old radar.',
+    desc: 'Fast interceptor. 1 nuclear Genie + 2 IR Falcons. Fire control computes lead. Old radar. 25s scramble.',
     speed: 850,
+    patrolSpeed: 500,
+    interceptSpeed: 1350,
     fuelCapacity: 100,
-    fuelBurnRate: 0.065,    // ~51s real endurance, 177nm round trip
+    fuelBurnRate: 0.065,    // cruise burn rate
     weapons: 1,
     weaponType: 'GENIE',
     weaponsRange: 8,
@@ -207,7 +214,7 @@ export const AIRCRAFT_TYPES = {
     name: 'E-3A Sentry AWACS',
     callsign: 'SENTRY',
     role: 'EARLY WARNING',
-    desc: 'No weapons. 200nm radar + data link hub. Losing it blinds forward fighters.',
+    desc: 'No weapons. 200nm radar + data link hub. Losing it blinds forward fighters. 45s scramble.',
     speed: 360,
     fuelCapacity: 100,
     fuelBurnRate: 0.014,    // ~238s real endurance, 360nm round trip
@@ -226,7 +233,7 @@ export const AIRCRAFT_TYPES = {
     name: 'KC-135 Stratotanker',
     callsign: 'TEXACO',
     role: 'AERIAL REFUELING',
-    desc: 'No weapons, no radar. Extends fighter endurance. Position carefully.',
+    desc: 'No weapons, no radar. Extends fighter endurance. Position carefully. 45s scramble.',
     speed: 450,
     fuelCapacity: 100,
     fuelBurnRate: 0.012,    // ~277s real endurance
