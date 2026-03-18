@@ -3,7 +3,7 @@
 A browser-based cold-war NORAD air defense simulation. The player manages radar contacts, scrambles interceptors, and defends North American cities against escalating waves of airborne threats. Prioritizes the "control tower" feel — managing information and making decisions, not clicking frantically.
 
 ## Project Status
-**Phase: 14A complete** — Phases 1-4 built arcade prototype. Phase 5 single-sector command post. Phase 6 IFF + civilians. Phase 7 WCS/ROE. Phase 8 time compression. Phase 9A-C resource pressure + missiles + missions. Phase 10 sensor depth. Phase 11A-C zoom/EW/formations. Phase 12A sound design. Phase 13 tactical overhaul: Alaska ADIZ sector (300nm), SCRAMBLING/TRACKING states, probe vs attack AI, shift-based spawning, ingress waypoints, radar hot/cold. Phase 14A difficulty scaling: pre-game menu, CADET/STANDARD/VETERAN presets, difficulty-selected incident schedules, auto-ID for CADET, score multipliers. Next: Phase 14B+ (scenario variety, debrief, weather).
+**Phase: 14A complete** — Phases 1-4 built arcade prototype. Phase 5 single-sector command post. Phase 6 IFF + civilians. Phase 7 WCS/ROE. Phase 8 time compression. Phase 9A-C resource pressure + missiles + missions. Phase 10 sensor depth. Phase 11A-C zoom/EW/formations. Phase 12A sound design. Phase 13 tactical overhaul: Alaska ADIZ sector (300nm), SCRAMBLING/TRACKING states, probe vs attack AI, shift-based spawning, ingress waypoints, radar hot/cold. Phase 14A difficulty scaling: pre-game menu, CADET/STANDARD/VETERAN presets, difficulty-selected incident schedules, auto-ID for CADET, score multipliers. Next: Phase 15 (alert posture & auto-scramble). Roadmap through Phase 22 (campaign & progression).
 
 ## Tech Stack
 - **Vanilla JavaScript** + **HTML5 Canvas** — no frameworks, no build step
@@ -210,11 +210,94 @@ norad-watch/
 - **Phase 14A:** Score multiplier ✓ — Final score scaled by difficulty (CADET 0.5x, VETERAN 1.5x). Difficulty shown in scoring overlay and status bar.
 - **Phase 14A:** `src/difficulty.js` ✓ — Difficulty presets + `getDifficulty()` accessor keyed off `state.difficulty`.
 
-### Phase 14B+: Future (Deferred)
-- **Scenario variety** — Additional sectors (NE ADIZ, Iceland-Faroes Gap, Korea), different geography/threats/assets
+### Phase 15: Alert Posture & Auto-Scramble
+**Goal:** Foundation for automation. Change bases from manual dispatch to managed readiness.
+
+- 3 alert levels per base: PEACETIME (0 CAP, full scramble delay), ELEVATED (2 CAP, 0.6x delay), MAXIMUM (4 CAP, 0.3x delay, burns sorties fast)
+- Auto-scramble: when a CAP bird engages, base auto-launches a replacement
+- Reserve floor per base ("keep N on ground") prevents auto-scramble from emptying the base
+- Higher alert = faster aircraft wear, more fuel burn, fewer sorties available later
+- Player still manually scrambles — alert level determines how many are already up and how fast new ones launch
+- **Risk:** auto-scramble may feel like losing control. Mitigation: toggleable per base, manual override always available.
+
+### Phase 16: Shift Extension & Pacing
+**Goal:** Current ~90s shifts too short for planning. Needed before adding more systems.
+
+- Extend shifts to ~4-5 minutes real-time
+- 3-act structure: quiet opening (probes, establish CAP) → escalation (mixed attacks, tempo increase) → climax (coordinated assault, ICBM threat)
+- Between-act lulls for posture adjustment, alert rotation, repositioning
+- Shift clock visible, acts felt not labeled
+- Tune dynamic spawner cooldowns/delays for longer sessions
+
+### Phase 17: Pre-Shift Setup
+**Goal:** "Placement IS the plan" — commitment before the action starts.
+
+- Budget screen before each shift: points to spend on assets
+- Place mobile radar units (relocatable during shift, but takes time)
+- Choose base loadouts from available aircraft pool (not every base gets everything)
+- Place 1-2 SAM sites (autonomous, short-range, limited ammo — last-ditch city defense)
+- Choose starting alert posture per base
+- Confirm → shift begins, live with your choices
+- **Risk:** setup fatigue if too long. Target 30-60 seconds of decisions.
+
+### Phase 18: Defense Zones & Doctrine
+**Goal:** "The plan runs itself" — reduce micro, increase strategy. Dispatcher → commander.
+
+- Draw named zones on the map (polygon, like CMO reference points)
+- Assign zones to bases: "Galena covers ZONE ALPHA"
+- Zone rules: engagement policy (engage hostile / engage all unknown / observe only), max interceptors committed, auto-ID before engage
+- Interceptors tasked to a zone auto-engage per zone rules — no manual target assignment needed
+- Doctrine cascade: global WCS → zone rules → per-unit override
+- Zones visible on map as tinted overlays
+- Player still manually scrambles — zone doctrine handles tasking once airborne
+
+### Phase 19: Offensive Missions
+**Goal:** Two-directional combat. You attack them, they attack you.
+
+- Enemy installations off the west edge (airbases, radar sites, staging areas)
+- Strike planner: select aircraft, draw route to target, set ingress waypoints
+- Strike packages leave your sector — gone for X minutes, then return (or don't)
+- Successful strikes reduce enemy attack tempo (destroy staging base → fewer bombers next act)
+- Failed strikes = lost aircraft, no impact
+- Core tension: every plane on offense is one less on defense. Enemy may probe while your strike is out.
+- Enemy retaliates harder after you hit their assets (escalation mechanic)
+- **Risk:** scope explosion. Start simple — 2-3 target types, one strike mission at a time.
+
+### Phase 20: In-Game Construction
+**Goal:** Extend pre-shift placement into the shift itself.
+
+- Construction queue: order forward radar site or SAM battery during the shift
+- Build time: 2-3 minutes real-time, vulnerable during construction
+- Repair damaged radar sites (crew dispatched, timer — not instant)
+- Resupply: request ammo/fuel convoy to a base (arrives after delay, replenishes sorties)
+- Forward Operating Base: temporary airstrip closer to the action (limited capacity, no repair)
+- **Risk:** too much RTS can fight the "control room" feel. Keep to a few high-impact decisions.
+
+### Phase 21: Audio & Atmosphere
+**Goal:** More air force sounds. Can be woven in alongside other phases.
+
+- Radio callouts: synthetic voice clips for scramble, weapons free, splash, winchester, RTB
+- Jet engine ambience when zoomed on fighters
+- Distinct threat approach signatures (bomber drone vs fighter whine)
+- Ground control chatter during quiet periods (ambient immersion)
+- Strike package departure/return audio
+- Alert level change klaxons (MAXIMUM = klaxon, ELEVATED = tone)
+
+### Phase 22: Campaign & Progression
+**Goal:** Multi-shift structure. Decisions carry forward.
+
+- Campaign = sequence of shifts (3-5 per campaign)
+- Assets persist between shifts — lost aircraft stay lost
+- Between shifts: repair, resupply, reposition (limited, not unlimited)
+- Intelligence briefings before each shift ("SIGINT indicates heavy bomber activity from Anadyr")
+- Escalation ladder: early shifts are probes, later shifts are full attacks
+- Score/rating across the campaign, not just per shift
+- **Risk:** biggest scope addition. May split across sub-phases.
+
+### Deferred / Unscheduled
+- **Scenario variety** — Additional sectors (NE ADIZ, Iceland-Faroes Gap, Korea)
 - **Post-scenario debrief** — Timeline replay showing all contacts, decisions, outcomes
 - **Weather sectors** — Overlay zones degrading radar detection
-- **Pre-mission asset placement** — Budget to position radar sites, SAM batteries, bases
 - **Terrain masking** — blocked until altitude is a real mechanic
 - **Altitude as full mechanic** — radar horizon, engagement envelopes, climb/descent time
 
@@ -236,7 +319,14 @@ norad-watch/
 | 12A   | Sound design | "I can hear the tension" (done) |
 | 13    | Alaska sector, scramble delay, tracking, probe/attack AI, shift-based pacing | "Is this one real?" (done) |
 | 14A   | Difficulty levels, pre-game menu | "How hard do you want it?" (done) |
-| 14B+  | New sectors, weather, debrief, asset placement | Full experience |
+| 15    | Alert posture, auto-scramble, reserve floors | "Set readiness, not individual orders" |
+| 16    | Extended shifts, 3-act pacing | "A full watch, not a sprint" |
+| 17    | Pre-shift budget, asset placement, SAM sites | "Plan before the storm" |
+| 18    | Defense zones, doctrine cascade, zone engagement rules | "The plan runs itself" |
+| 19    | Offensive strike missions, enemy installations, escalation | "Hit them back" |
+| 20    | In-game construction, repair, resupply, FOBs | "Build your advantage" |
+| 21    | Radio callouts, engine ambience, threat signatures, chatter | "Sounds like a real command post" |
+| 22    | Multi-shift campaign, persistent assets, intel briefings | "The long game" |
 
 ## Core Mechanics
 
