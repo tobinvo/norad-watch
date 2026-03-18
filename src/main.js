@@ -85,6 +85,10 @@ function resetGame() {
   state.lastSpawnTime = 0;
   state.totalSpawned = 0;
   state.incidentsSpawned = [];
+  state.nextIncidentIdx = 0;
+  state.lastIncidentTime = 0;
+  state.boardClearedAt = null;
+  state.lastSpawnEdge = null;
   state.shiftComplete = false;
   state.lastCivilianSpawn = 0;
   state.defcon = 5;

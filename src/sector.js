@@ -14,7 +14,7 @@ export const SECTOR = {
   extentX: 150,  // -150 to +150 nm east-west (300nm across)
   extentY: 150,  // -150 to +150 nm north-south
 
-  // Prosecution boundary — how far outside sector fighters can chase
+  // Prosecution boundary — how far outside sector contacts persist before cleanup
   prosecutionBuffer: 40,
 
   // Radar sites (x = nm east, y = nm north from center)
@@ -27,7 +27,7 @@ export const SECTOR = {
 
   // Bases — interior, between coast and cities
   bases: [
-    { name: 'GALENA FOL', x: -30, y: 85, roster: ['F-15A', 'F-15A', 'F-15A', 'F-16C', 'F-16C', 'E-3A', 'KC-135'] },
+    { name: 'GALENA FOL', x: -30, y: 85, roster: ['F-15A', 'F-15A', 'F-15A', 'F-16C', 'F-16C', 'F-106A', 'F-106A', 'E-3A', 'KC-135'] },
     { name: 'KING SALMON AFS', x: -10, y: -105, roster: ['F-16C', 'F-16C', 'F-16C', 'F-106A', 'F-106A', 'E-3A', 'KC-135'] },
   ],
 
@@ -172,9 +172,12 @@ export function updateCanvasSize(w, h) {
 }
 
 // Base scale (pixels per nm at zoom 1)
+// Viewport margin — show this many nm beyond the sector boundary on each side
+const VIEWPORT_MARGIN = 30;
+
 function baseScale() {
-  const scaleX = canvasW / (SECTOR.extentX * 2);
-  const scaleY = canvasH / (SECTOR.extentY * 2);
+  const scaleX = canvasW / ((SECTOR.extentX + VIEWPORT_MARGIN) * 2);
+  const scaleY = canvasH / ((SECTOR.extentY + VIEWPORT_MARGIN) * 2);
   return Math.min(scaleX, scaleY);
 }
 
@@ -233,7 +236,7 @@ export function getSpawnPosition(side) {
     case 'west':
       return { x: -ext - margin, y: (Math.random() - 0.5) * extY * 1.4 };
     case 'north':
-      return { x: (Math.random() - 0.5) * ext * 1.4, y: extY + margin };
+      return { x: (Math.random() - 0.5) * ext * 0.8, y: extY + margin };
     case 'south':
       return { x: (Math.random() - 0.5) * ext * 1.4, y: -extY - margin };
     case 'northeast':

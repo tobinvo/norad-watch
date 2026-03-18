@@ -1,8 +1,9 @@
 // ═══════════════════════════════════════════
 // SHIFT-BASED INCIDENT SCHEDULE
 // One "shift" = ~45 min game-time.
-// Incidents spawn at scheduled game-time offsets.
-// Each incident defines what contacts appear.
+// Incidents spawn sequentially with minimum delays.
+// Each incident waits for: (1) minDelay since last spawn, AND
+// (2) if board is clear, an extra cooldown after last threat resolved.
 // ═══════════════════════════════════════════
 
 // Incident types:
@@ -18,83 +19,78 @@
 
 export const SHIFT_DURATION = 2700000; // 45 min game-time
 
+// cooldown: game-ms to wait after board clears before this incident spawns
+// minDelay: minimum game-ms since previous incident spawned (pacing floor)
+
 // ── STANDARD — current baseline (16 incidents) ──
 export const INCIDENTS = [
-  // ── Phase 1: Setup period (0-3 min) — no contacts, establish CAP ──
+  // ── Phase 1: Setup period — first contact after ~10s real ──
 
-  // ── Phase 2: Routine probes (3-15 min) — build the rhythm ──
-  { time: 180000,  type: 'SOLO_PROBE',      threats: ['BOMBER'] },
-  { time: 330000,  type: 'SOLO_PROBE',      threats: ['FIGHTER'] },
-  { time: 520000,  type: 'PAIR_PROBE',      threats: ['BOMBER', 'BOMBER'] },
-  { time: 700000,  type: 'SOLO_PROBE',      threats: ['BOMBER'] },
+  // ── Phase 2: Routine probes — one at a time, breathing room after each ──
+  { minDelay: 300000,  cooldown: 120000, type: 'SOLO_PROBE',      threats: ['BOMBER'] },
+  { minDelay: 240000,  cooldown: 120000, type: 'SOLO_PROBE',      threats: ['FIGHTER'] },
+  { minDelay: 240000,  cooldown: 120000, type: 'SOLO_PROBE',      threats: ['BOMBER'] },
+  { minDelay: 220000,  cooldown: 90000,  type: 'PAIR_PROBE',      threats: ['BOMBER', 'BOMBER'] },
 
-  // ── Phase 3: First real attack mixed in (15-25 min) — "this one isn't turning" ──
-  { time: 900000,  type: 'SOLO_PROBE',      threats: ['FIGHTER'] },
-  { time: 1050000, type: 'SOLO_ATTACK',     threats: ['BOMBER'] },
-  { time: 1200000, type: 'SOLO_PROBE',      threats: ['BOMBER'] },
-  { time: 1400000, type: 'FORMATION_PROBE', threats: ['BOMBER'], escorts: ['FIGHTER'] },
+  // ── Phase 3: First real attack mixed in — "this one isn't turning" ──
+  { minDelay: 200000,  cooldown: 90000,  type: 'SOLO_PROBE',      threats: ['FIGHTER'] },
+  { minDelay: 200000,  cooldown: 90000,  type: 'SOLO_ATTACK',     threats: ['BOMBER'] },
+  { minDelay: 200000,  cooldown: 90000,  type: 'SOLO_PROBE',      threats: ['BOMBER'] },
+  { minDelay: 200000,  cooldown: 60000,  type: 'FORMATION_PROBE', threats: ['BOMBER'], escorts: ['FIGHTER'] },
 
-  // ── Phase 4: Tempo increase (25-37 min) — more attacks, SEAD, shorter gaps ──
-  { time: 1550000, type: 'SOLO_ATTACK',     threats: ['CRUISE_MISSILE'] },
-  { time: 1650000, type: 'SOLO_PROBE',      threats: ['FIGHTER'] },
-  { time: 1800000, type: 'FORMATION_ATTACK', threats: ['BOMBER'], escorts: ['FIGHTER', 'FIGHTER'] },
-  { time: 1950000, type: 'ARM_STRIKE',      threats: ['BOMBER', 'ARM'] },
-  { time: 2100000, type: 'SOLO_PROBE',      threats: ['BOMBER'] },
+  // ── Phase 4: Tempo increase — shorter gaps, overlaps possible ──
+  { minDelay: 180000,  cooldown: 60000,  type: 'SOLO_ATTACK',     threats: ['CRUISE_MISSILE'] },
+  { minDelay: 150000,  cooldown: 60000,  type: 'SOLO_PROBE',      threats: ['FIGHTER'] },
+  { minDelay: 150000,  cooldown: 60000,  type: 'FORMATION_ATTACK', threats: ['BOMBER'], escorts: ['FIGHTER', 'FIGHTER'] },
+  { minDelay: 150000,  cooldown: 45000,  type: 'ARM_STRIKE',      threats: ['BOMBER', 'ARM'] },
 
-  // ── Phase 5: Final push (37-45 min) — defenses stretched ──
-  { time: 2250000, type: 'FORMATION_ATTACK', threats: ['BOMBER'], escorts: ['FIGHTER'], edge: 'northwest' },
-  { time: 2350000, type: 'SOLO_ATTACK',     threats: ['CRUISE_MISSILE'] },
-  { time: 2500000, type: 'SOLO_ATTACK',     threats: ['ICBM'] },
+  // ── Phase 5: Final push — defenses stretched ──
+  { minDelay: 120000,  cooldown: 45000,  type: 'SOLO_PROBE',      threats: ['BOMBER'] },
+  { minDelay: 120000,  cooldown: 30000,  type: 'FORMATION_ATTACK', threats: ['BOMBER'], escorts: ['FIGHTER'], edge: 'northwest' },
+  { minDelay: 100000,  cooldown: 30000,  type: 'SOLO_ATTACK',     threats: ['CRUISE_MISSILE'] },
+  { minDelay: 100000,  cooldown: 0,      type: 'SOLO_ATTACK',     threats: ['ICBM'] },
 ];
 
-// ── EASY — training mode (10 incidents, no ARM, no formations, wider gaps) ──
+// ── EASY — training mode (10 incidents, no ARM, no formations, generous gaps) ──
 export const INCIDENTS_EASY = [
-  // Slow start, generous spacing
-  { time: 240000,  type: 'SOLO_PROBE',  threats: ['BOMBER'] },
-  { time: 480000,  type: 'SOLO_PROBE',  threats: ['FIGHTER'] },
-  { time: 720000,  type: 'SOLO_PROBE',  threats: ['BOMBER'] },
+  { minDelay: 360000,  cooldown: 180000, type: 'SOLO_PROBE',  threats: ['BOMBER'] },
+  { minDelay: 300000,  cooldown: 150000, type: 'SOLO_PROBE',  threats: ['FIGHTER'] },
+  { minDelay: 300000,  cooldown: 150000, type: 'SOLO_PROBE',  threats: ['BOMBER'] },
 
-  // First attack late and solo
-  { time: 1050000, type: 'SOLO_PROBE',  threats: ['BOMBER'] },
-  { time: 1350000, type: 'SOLO_ATTACK', threats: ['BOMBER'] },
-  { time: 1600000, type: 'SOLO_PROBE',  threats: ['FIGHTER'] },
+  { minDelay: 280000,  cooldown: 120000, type: 'SOLO_PROBE',  threats: ['BOMBER'] },
+  { minDelay: 260000,  cooldown: 120000, type: 'SOLO_ATTACK', threats: ['BOMBER'] },
+  { minDelay: 260000,  cooldown: 120000, type: 'SOLO_PROBE',  threats: ['FIGHTER'] },
 
-  // Light final stretch
-  { time: 1900000, type: 'SOLO_ATTACK', threats: ['BOMBER'] },
-  { time: 2100000, type: 'SOLO_PROBE',  threats: ['BOMBER'] },
-  { time: 2300000, type: 'SOLO_ATTACK', threats: ['CRUISE_MISSILE'] },
-  { time: 2500000, type: 'SOLO_PROBE',  threats: ['FIGHTER'] },
+  { minDelay: 240000,  cooldown: 90000,  type: 'SOLO_ATTACK', threats: ['BOMBER'] },
+  { minDelay: 240000,  cooldown: 90000,  type: 'SOLO_PROBE',  threats: ['BOMBER'] },
+  { minDelay: 220000,  cooldown: 90000,  type: 'SOLO_ATTACK', threats: ['CRUISE_MISSILE'] },
+  { minDelay: 220000,  cooldown: 60000,  type: 'SOLO_PROBE',  threats: ['FIGHTER'] },
 ];
 
-// ── HARD — veteran mode (20 incidents, more attacks, compressed timing, extra SEAD) ──
+// ── HARD — veteran mode (20 incidents, tight gaps, less breathing room) ──
 export const INCIDENTS_HARD = [
-  // Quick probes, shorter setup window
-  { time: 120000,  type: 'SOLO_PROBE',      threats: ['BOMBER'] },
-  { time: 250000,  type: 'SOLO_PROBE',      threats: ['FIGHTER'] },
-  { time: 400000,  type: 'PAIR_PROBE',      threats: ['BOMBER', 'BOMBER'] },
+  { minDelay: 180000,  cooldown: 60000,  type: 'SOLO_PROBE',      threats: ['BOMBER'] },
+  { minDelay: 150000,  cooldown: 60000,  type: 'SOLO_PROBE',      threats: ['FIGHTER'] },
+  { minDelay: 150000,  cooldown: 45000,  type: 'PAIR_PROBE',      threats: ['BOMBER', 'BOMBER'] },
 
-  // Early first attack
-  { time: 600000,  type: 'SOLO_PROBE',      threats: ['FIGHTER'] },
-  { time: 750000,  type: 'SOLO_ATTACK',     threats: ['BOMBER'] },
-  { time: 900000,  type: 'FORMATION_PROBE', threats: ['BOMBER'], escorts: ['FIGHTER'] },
-  { time: 1050000, type: 'SOLO_ATTACK',     threats: ['CRUISE_MISSILE'] },
+  { minDelay: 150000,  cooldown: 45000,  type: 'SOLO_PROBE',      threats: ['FIGHTER'] },
+  { minDelay: 140000,  cooldown: 45000,  type: 'SOLO_ATTACK',     threats: ['BOMBER'] },
+  { minDelay: 140000,  cooldown: 30000,  type: 'FORMATION_PROBE', threats: ['BOMBER'], escorts: ['FIGHTER'] },
+  { minDelay: 130000,  cooldown: 30000,  type: 'SOLO_ATTACK',     threats: ['CRUISE_MISSILE'] },
 
-  // Sustained pressure
-  { time: 1200000, type: 'SOLO_PROBE',      threats: ['FIGHTER'] },
-  { time: 1350000, type: 'FORMATION_ATTACK', threats: ['BOMBER'], escorts: ['FIGHTER', 'FIGHTER'] },
-  { time: 1450000, type: 'ARM_STRIKE',      threats: ['BOMBER', 'ARM'] },
-  { time: 1550000, type: 'SOLO_PROBE',      threats: ['BOMBER'] },
-  { time: 1650000, type: 'SOLO_ATTACK',     threats: ['BOMBER'] },
+  { minDelay: 130000,  cooldown: 30000,  type: 'SOLO_PROBE',      threats: ['FIGHTER'] },
+  { minDelay: 120000,  cooldown: 30000,  type: 'FORMATION_ATTACK', threats: ['BOMBER'], escorts: ['FIGHTER', 'FIGHTER'] },
+  { minDelay: 120000,  cooldown: 20000,  type: 'ARM_STRIKE',      threats: ['BOMBER', 'ARM'] },
+  { minDelay: 110000,  cooldown: 20000,  type: 'SOLO_PROBE',      threats: ['BOMBER'] },
+  { minDelay: 110000,  cooldown: 20000,  type: 'SOLO_ATTACK',     threats: ['BOMBER'] },
 
-  // Multi-axis assault
-  { time: 1800000, type: 'FORMATION_ATTACK', threats: ['BOMBER'], escorts: ['FIGHTER'], edge: 'northwest' },
-  { time: 1850000, type: 'SOLO_ATTACK',     threats: ['CRUISE_MISSILE'] },
-  { time: 1950000, type: 'ARM_STRIKE',      threats: ['BOMBER', 'ARM'] },
-  { time: 2050000, type: 'SOLO_PROBE',      threats: ['FIGHTER'] },
+  { minDelay: 100000,  cooldown: 15000,  type: 'FORMATION_ATTACK', threats: ['BOMBER'], escorts: ['FIGHTER'], edge: 'northwest' },
+  { minDelay: 100000,  cooldown: 15000,  type: 'SOLO_ATTACK',     threats: ['CRUISE_MISSILE'] },
+  { minDelay: 90000,   cooldown: 15000,  type: 'ARM_STRIKE',      threats: ['BOMBER', 'ARM'] },
+  { minDelay: 90000,   cooldown: 10000,  type: 'SOLO_PROBE',      threats: ['FIGHTER'] },
 
-  // Final push — everything at once
-  { time: 2200000, type: 'FORMATION_ATTACK', threats: ['BOMBER'], escorts: ['FIGHTER', 'FIGHTER'], edge: 'north' },
-  { time: 2300000, type: 'SOLO_ATTACK',     threats: ['CRUISE_MISSILE'] },
-  { time: 2400000, type: 'ARM_STRIKE',      threats: ['BOMBER', 'ARM'] },
-  { time: 2550000, type: 'SOLO_ATTACK',     threats: ['ICBM'] },
+  { minDelay: 80000,   cooldown: 10000,  type: 'FORMATION_ATTACK', threats: ['BOMBER'], escorts: ['FIGHTER', 'FIGHTER'], edge: 'north' },
+  { minDelay: 80000,   cooldown: 10000,  type: 'SOLO_ATTACK',     threats: ['CRUISE_MISSILE'] },
+  { minDelay: 70000,   cooldown: 0,      type: 'ARM_STRIKE',      threats: ['BOMBER', 'ARM'] },
+  { minDelay: 60000,   cooldown: 0,      type: 'SOLO_ATTACK',     threats: ['ICBM'] },
 ];

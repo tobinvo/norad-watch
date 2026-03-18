@@ -47,8 +47,8 @@ export const CIVILIAN_KILL_PENALTY = -500;
 // CIVILIAN TRAFFIC
 // ═══════════════════════════════════════════
 
-export const CIVILIAN_SPAWN_INTERVAL = 600000; // game-ms between spawns (~20s real at 30x)
-export const CIVILIAN_START_COUNT = 3;          // civilians pre-placed at game start
+export const CIVILIAN_SPAWN_INTERVAL = 360000; // game-ms between spawns (~12s real at 30x)
+export const CIVILIAN_START_COUNT = 5;          // civilians pre-placed at game start
 
 export const CIVILIAN_TYPES = {
   AIRLINER: {

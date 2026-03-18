@@ -6,6 +6,44 @@ import { createMissile, hasRadarTrack, getActiveAWACS, clearMission, getCurrentW
 import { getEffectiveWCS } from './input.js';
 import { playMissileLaunch, playAlertKlaxon, playRadarDestroyed, playAwacsDown, playCityImpact, updateArmWarning, playRadioChatter } from './audio.js';
 
+// ── Find nearest engageable target for retargeting after a kill ──
+function findNearestTarget(interceptor, range) {
+  const wcs = getEffectiveWCS(interceptor);
+  if (wcs === 'HOLD') return null;
+
+  let nearest = null;
+  let nearestDist = Infinity;
+
+  for (const contact of state.contacts) {
+    if (contact.state !== 'ACTIVE' || !contact.detected) continue;
+    if (contact.allegiance === 'FRIENDLY') continue;
+    if (wcs === 'TIGHT' && contact.allegiance !== 'HOSTILE') continue;
+
+    const dx = contact.x - interceptor.x;
+    const dy = contact.y - interceptor.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+
+    if (d <= range && d < nearestDist) {
+      // If escorted lead, prefer nearest escort
+      if (contact.formationRole === 'LEAD') {
+        const activeEscorts = getActiveEscorts(contact);
+        if (activeEscorts.length > 0) {
+          for (const e of activeEscorts) {
+            const edx = e.x - interceptor.x;
+            const edy = e.y - interceptor.y;
+            const ed = Math.sqrt(edx * edx + edy * edy);
+            if (ed < nearestDist) { nearest = e; nearestDist = ed; }
+          }
+          continue;
+        }
+      }
+      nearest = contact;
+      nearestDist = d;
+    }
+  }
+  return nearest;
+}
+
 // ── Manual fire — called from input.js when player right-clicks a tracked target ──
 export function fireWeapon(interceptor) {
   if (interceptor.state !== 'TRACKING' || !interceptor.target) return false;
@@ -147,15 +185,22 @@ export function resolveEngagements() {
       continue;
     }
 
-    // Target already neutralized — assess
+    // Target already neutralized — assess and retarget
     if (contact.state !== 'ACTIVE') {
       interceptor.target = null;
       if (totalWeapons(interceptor) > 0) {
-        interceptor.state = 'CAP';
-        if (interceptor.mission) {
+        // Try to retarget nearest threat
+        const next = findNearestTarget(interceptor, PATROL_DETECT_RANGE);
+        if (next) {
+          interceptor.state = 'AIRBORNE';
+          interceptor.target = next;
+          addLog(`${interceptor.id} TARGET DOWN — RETARGETING ${next.id}`, 'warn');
+        } else if (interceptor.mission) {
+          interceptor.state = 'CAP';
           interceptor.capPoint = null;
           addLog(`${interceptor.id} TARGET DOWN — RESUMING ${interceptor.mission.name}`, '');
         } else {
+          interceptor.state = 'CAP';
           interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
           addLog(`${interceptor.id} TARGET DOWN — ${weaponSummary(interceptor)} REMAINING — AWAITING ORDERS`, '');
         }

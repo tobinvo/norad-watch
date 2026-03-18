@@ -7,6 +7,7 @@ import { AIRCRAFT_TYPES, THREAT_TYPES, ARRIVAL_THRESHOLD, ID_RANGE, ID_TIME, CIV
 import { state } from './state.js';
 import { addLog } from './hud.js';
 import { playSplash, playNuclearDetonation, playDamageHit, playProbeTurnBack } from './audio.js';
+import { isInSector, isInProsecutionZone } from './sector.js';
 
 // ═══════════════════════════════════════════
 // CITY
@@ -691,11 +692,24 @@ export function moveInterceptor(interceptor, dSec) {
       interceptor.capPoint = { x: interceptor.x, y: interceptor.y };
       return;
     }
+    // Target left the prosecution zone — break off, don't chase off-screen
+    if (!isInProsecutionZone(t.x, t.y)) {
+      interceptor.target = null;
+      interceptor.state = 'RTB';
+      return;
+    }
     const ip = computeInterceptPoint(interceptor, t);
     targetX = ip.x;
     targetY = ip.y;
   } else if (interceptor.state === 'ID_MISSION' && interceptor.idTarget) {
     const t = interceptor.idTarget;
+    // ID target left prosecution zone — break off
+    if (!isInProsecutionZone(t.x, t.y)) {
+      interceptor.idTarget = null;
+      interceptor.idProgress = 0;
+      interceptor.state = 'RTB';
+      return;
+    }
     const ip = computeInterceptPoint(interceptor, t);
     targetX = ip.x;
     targetY = ip.y;

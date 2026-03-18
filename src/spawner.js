@@ -13,10 +13,15 @@ function getIncidents() {
   return INCIDENTS;
 }
 
+// Track when the board last had active threats resolved
+function boardIsClear() {
+  return !state.contacts.some(c =>
+    c.status !== 'NEUTRALIZED' && c.status !== 'IMPACT' && c.status !== 'EXITED' && !c.isCivilian
+  );
+}
+
 export function trySpawnThreat(gameTime) {
   if (state.status !== 'ACTIVE') return;
-
-  // Shift complete — all incidents spawned and time elapsed
   if (state.shiftComplete) return;
 
   // Check if shift time is up
@@ -25,17 +30,32 @@ export function trySpawnThreat(gameTime) {
     return;
   }
 
-  // Check each incident — spawn if time has passed and not yet spawned
   const incidents = getIncidents();
-  for (let i = 0; i < incidents.length; i++) {
-    if (state.incidentsSpawned[i]) continue;
-    const incident = incidents[i];
-    if (gameTime < incident.time) continue;
+  const nextIdx = state.nextIncidentIdx || 0;
+  if (nextIdx >= incidents.length) return;
 
-    // Spawn this incident
-    state.incidentsSpawned[i] = true;
-    spawnIncident(incident, gameTime);
+  const incident = incidents[nextIdx];
+  const lastSpawn = state.lastIncidentTime || 0;
+  const timeSinceLastSpawn = gameTime - lastSpawn;
+
+  // Condition 1: minimum delay since last spawn
+  if (timeSinceLastSpawn < incident.minDelay) return;
+
+  // Condition 2: if board is clear, require cooldown since it cleared
+  if (incident.cooldown > 0 && boardIsClear()) {
+    // Track when board became clear
+    if (state.boardClearedAt === null || state.boardClearedAt === undefined) {
+      state.boardClearedAt = gameTime;
+    }
+    const timeSinceClear = gameTime - state.boardClearedAt;
+    if (timeSinceClear < incident.cooldown) return;
   }
+
+  // Spawn this incident
+  state.nextIncidentIdx = nextIdx + 1;
+  state.lastIncidentTime = gameTime;
+  state.boardClearedAt = null; // reset — new threats on the board
+  spawnIncident(incident, gameTime);
 }
 
 function spawnIncident(incident, gameTime) {
@@ -43,7 +63,7 @@ function spawnIncident(incident, gameTime) {
   if (livingCities.length === 0) return;
 
   const targetCity = livingCities[Math.floor(Math.random() * livingCities.length)];
-  const side = incident.edge || pickSpawnEdge();
+  const side = incident.edge || pickSpawnEdgeNoRepeat();
 
   const isProbe = incident.type.includes('PROBE');
   const isFormation = incident.type.includes('FORMATION');
@@ -158,6 +178,17 @@ function trySpawnARM(targetCity) {
     arm.hdgDeg = Math.round(((90 - arm.heading * 180 / Math.PI) + 360) % 360);
     state.contacts.push(arm);
   }
+}
+
+// Pick a spawn edge, avoiding the same edge twice in a row
+function pickSpawnEdgeNoRepeat() {
+  let edge = pickSpawnEdge();
+  // If same as last, re-roll once
+  if (edge === state.lastSpawnEdge) {
+    edge = pickSpawnEdge();
+  }
+  state.lastSpawnEdge = edge;
+  return edge;
 }
 
 // Distribute escorts around lead — flanking positions perpendicular to heading

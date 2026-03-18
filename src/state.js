@@ -25,7 +25,11 @@ export const state = {
   // Spawning / Shift
   lastSpawnTime: 0,
   totalSpawned: 0,
-  incidentsSpawned: [],   // boolean array tracking which incidents have spawned
+  incidentsSpawned: [],   // boolean array tracking which incidents have spawned (legacy)
+  nextIncidentIdx: 0,     // index of next incident to spawn
+  lastIncidentTime: 0,    // game-time when last incident spawned
+  boardClearedAt: null,   // game-time when board became clear (no active threats)
+  lastSpawnEdge: null,    // last edge used for spawning (anti-repeat)
   shiftComplete: false,
 
   // Civilian traffic
